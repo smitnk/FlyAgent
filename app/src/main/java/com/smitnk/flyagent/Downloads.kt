@@ -44,6 +44,7 @@ object Downloads {
                 when (status) {
                     DownloadManager.STATUS_SUCCESSFUL -> { dest.delete(); if (!part.renameTo(dest)) error("could not save file"); return dest }
                     DownloadManager.STATUS_FAILED -> { part.delete(); error("download failed (reason ${c.getInt(c.getColumnIndexOrThrow(DownloadManager.COLUMN_REASON))})") }
+                    else -> Unit
                 }
             }
         }
