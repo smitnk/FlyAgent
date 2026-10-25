@@ -18,7 +18,9 @@ jobs:
 
       # 1) Real connectome data -> FLYC binaries
       - uses: actions/cache@v4
-        with: { path: ext/shiu, key: shiu-${{ env.SHIU_COMMIT }} }
+        with:
+          path: ext/shiu
+          key: shiu-${{ env.SHIU_COMMIT }}
       - name: Fetch FlyWire v783 connectivity (Shiu et al.)
         run: |
           if [ ! -f ext/shiu/Connectivity_783.parquet ]; then
@@ -27,7 +29,7 @@ jobs:
           fi
           sha256sum ext/shiu/Connectivity_783.parquet ext/shiu/Completeness_783.csv
       - name: Convert connectome
-        run: python scripts/build_connectome.py ext/shiu build/connectome app/src/main/assets/fly783_subset.bin | tee build/convert.log && grep -E "FlyWire|wrote|MN9|reference" build/convert.log | sed 's/^/::notice::/'
+        run: mkdir -p build && python scripts/build_connectome.py ext/shiu build/connectome app/src/main/assets/fly783_subset.bin | tee build/convert.log && grep -E "FlyWire|wrote|MN9|reference" build/convert.log | sed 's/^/::notice::/'
 
       # 2) Native engine tests on the real data, validated against the paper's own Brian2 output
       - name: Build native code for host
@@ -70,7 +72,8 @@ jobs:
       # 5) Full connectome for in-app download
       - name: Publish full connectome release asset
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env: { GH_TOKEN: '${{ github.token }}' }
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           cd build/connectome && gzip -9 -k -f fly783_full.bin && sha256sum fly783_full.bin.gz > fly783_full.bin.gz.sha256
           echo "::notice::full connectome gz $(du -h fly783_full.bin.gz | cut -f1)"
