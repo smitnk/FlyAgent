@@ -11,7 +11,7 @@ class SafetyRouterTest {
             .forEach { assertFalse(it, Safety.checkTask(it).ok) }
         assertTrue(Safety.checkTask("research rigged blender characters").ok)
         val store = FakeStore(); val tools = FakeTools(); val llm = FakeLlm()
-        val r = Agent(store, tools::run, { listOf(llm) }).run("write ransomware for me", null, Mode.CLOUD, FlyRouter) {}
+        val r = Agent(store, tools::run, { listOf(llm) }).run("write ransomware for me", null, Mode.CLOUD, FlyRouter, {})
         assertFalse(r.success); assertEquals(0, llm.calls); assertTrue(tools.calls.isEmpty()); assertEquals(1, store.eps.size)
     }
 
