@@ -49,6 +49,9 @@ write(f"{OUT}/fly783_full.bin", ids, pre, post, w, f"FULL brain | {CITE}")
 # Induced subgraph = all real edges among the selected neurons. Inputs from outside the subset are absent, so subset
 # dynamics are an approximation of the full model; the app says so and offers the full brain.
 idx = {int(x): i for i, x in enumerate(ids)}
+missing = [s for s in SUGAR if s not in idx]  # v630 IDs can change in v783 after re-proofreading; we do not guess replacements
+print(f"sugar GRNs present in v783: {len(SUGAR) - len(missing)}/{len(SUGAR)}; missing: {missing}")
+SUGAR = [s for s in SUGAR if s in idx]
 sel = {idx[s] for s in SUGAR}
 frontier = set(sel)
 for hop in range(3):
