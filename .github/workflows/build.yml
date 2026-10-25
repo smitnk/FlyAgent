@@ -12,7 +12,7 @@ jobs:
       - run: |
           set -o pipefail
           gradle --no-daemon test assembleDebug 2>&1 | tee build.log || {
-            grep -E "^e: |FAILED|What went wrong|Exception|expected|> " build.log | head -40 | while read -r l; do echo "::error::$l"; done
+            grep -E "^e: |FAILED|What went wrong|Exception|expected|> " build.log | grep -v "> Task" | head -40 | while read -r l; do echo "::error::$l"; done
             exit 1; }
       - run: ls -la app/build/outputs/apk/debug/
       - uses: actions/upload-artifact@v4
