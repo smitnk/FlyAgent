@@ -550,7 +550,7 @@ class MainActivity : AppCompatActivity() {
 
     // ---------- helpers ----------
 
-    private fun field(hint: String, value: String, lines: Int = 1, password: Boolean = false): Pair<TextInputEditText, TextInputLayout> {
+    private fun field(hint: String, value: String = "", lines: Int = 1, password: Boolean = false): Pair<TextInputEditText, TextInputLayout> {
         val layout = TextInputLayout(this).apply { this.hint = hint; setPadding(0, px(4), 0, 0) }
         val et = TextInputEditText(layout.context).apply {
             setText(value); if (lines > 1) { minLines = lines; gravity = Gravity.TOP }
