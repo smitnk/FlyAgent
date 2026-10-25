@@ -12,7 +12,7 @@ class ChatTest {
     }
 
     @Test fun offlineHiRepliesWithoutAnyModel() {
-        val r = Agent(FakeStore(), FakeTools()::run, { emptyList() }).run("hi", null, Mode.OFFLINE, FlyRouter, {})
+        val r = Agent(FakeStore(), FakeTools()::run, { emptyList() }).run("hi", null, Mode.OFFLINE, ConventionalController, {})
         assertTrue(r.success); assertTrue(r.answer.startsWith("Hi"))
     }
 
@@ -20,25 +20,25 @@ class ChatTest {
         val local = FakeLlm("local", mutableListOf("Paris is the capital of France."))
         val cloud = FakeLlm("cloud")
         val r = Agent(FakeStore(), FakeTools()::run, { listOf(cloud) }, null, { local })
-            .run("capital of france?", null, Mode.OFFLINE, FlyRouter, {}, listOf("user" to "hi", "assistant" to "Hello!"))
+            .run("capital of france?", null, Mode.OFFLINE, ConventionalController, {}, listOf("user" to "hi", "assistant" to "Hello!"))
         assertEquals("Paris is the capital of France.", r.answer); assertEquals(0, cloud.calls)
         assertEquals(listOf("user", "assistant", "user"), local.lastMsgs.map { it.first })
     }
 
     @Test fun hybridWithoutApiFallsBackToLocalModel() {
         val local = FakeLlm("local", mutableListOf("offline answer"))
-        val r = Agent(FakeStore(), FakeTools()::run, { emptyList() }, null, { local }).run("tell me a joke", null, Mode.HYBRID, FlyRouter, {})
+        val r = Agent(FakeStore(), FakeTools()::run, { emptyList() }, null, { local }).run("tell me a joke", null, Mode.HYBRID, ConventionalController, {})
         assertEquals("offline answer", r.answer); assertFalse(r.usedCloud)
     }
 
     @Test fun cloudGetsChatHistory() {
         val cloud = FakeLlm()
-        Agent(FakeStore(), FakeTools()::run, { listOf(cloud) }).run("and tomorrow?", null, Mode.CLOUD, FlyRouter, {}, listOf("user" to "weather today?", "assistant" to "Sunny"))
+        Agent(FakeStore(), FakeTools()::run, { listOf(cloud) }).run("and tomorrow?", null, Mode.CLOUD, ConventionalController, {}, listOf("user" to "weather today?", "assistant" to "Sunny"))
         assertEquals("weather today?", cloud.lastMsgs.first().second)
     }
 
     @Test fun offlineUnknownWithoutModelExplainsHowToEnableChat() {
-        val r = Agent(FakeStore(), FakeTools()::run, { emptyList() }).run("tell me a joke", null, Mode.OFFLINE, FlyRouter, {})
+        val r = Agent(FakeStore(), FakeTools()::run, { emptyList() }).run("tell me a joke", null, Mode.OFFLINE, ConventionalController, {})
         assertFalse(r.success); assertTrue(r.answer.contains("load a local model"))
     }
 }

@@ -1,36 +1,44 @@
 package com.smitnk.flyagent
 
 import android.content.Context
-import com.google.mediapipe.tasks.genai.llminference.LlmInference
 import java.io.File
 
-/** Fully offline model via Google MediaPipe LLM Inference (.task files, e.g. Gemma3-1B-IT int4 from litert-community on Hugging Face). */
-class LocalLlm private constructor(private val engine: LlmInference, private val gemma: Boolean) : Llm {
-    override val name = "On-device model"
+/**
+ * Fully offline language model: Qwen3-0.6B (Apache-2.0) in GGUF format, run by llama.cpp (MIT) through JNI.
+ * Weights are downloaded once (not bundled in the APK) and memory-mapped.
+ */
+class LocalLlm private constructor(private val h: Long) : Llm {
+    override val name = "Qwen3-0.6B (on device)"
     override fun chat(system: String, msgs: List<Pair<String, String>>, image: Img?): String {
-        val p = if (gemma) buildString { // Gemma has no system role: fold it into the first user turn
-            msgs.forEachIndexed { i, (r, t) ->
-                append("<start_of_turn>${if (r == "user") "user" else "model"}\n${if (i == 0) "$system\n\n" else ""}$t<end_of_turn>\n")
-            }
-            append("<start_of_turn>model\n")
-        } else buildString { // ChatML (Qwen, Phi, SmolLM…)
-            append("<|im_start|>system\n$system<|im_end|>\n")
-            msgs.forEach { (r, t) -> append("<|im_start|>$r\n$t<|im_end|>\n") }
-            append("<|im_start|>assistant\n")
-        }
-        return engine.generateResponse(p).substringBefore("<end_of_turn>").substringBefore("<|im_end|>").trim()
+        val roles = arrayOf("system") + msgs.map { it.first }
+        // "/no_think" is Qwen3's switch for direct answers without a long reasoning trace (faster on phones)
+        val texts = arrayOf(system) + msgs.mapIndexed { i, (_, t) -> if (i == msgs.lastIndex) "$t /no_think" else t }
+        return stripThink(NativeLlm.chat(h, roles, texts, 512))
     }
 
     companion object {
+        fun stripThink(s: String) = s.replace(Regex("(?s)<think>.*?</think>"), "").replace("<think>", "").trim()
+
+        data class ModelOption(val label: String, val file: String, val sizeMb: Int)
+        const val REPO = "https://huggingface.co/ggml-org/Qwen3-0.6B-GGUF/resolve/main/"
+        val MODELS = listOf(
+            ModelOption("Qwen3-0.6B Q4_0 (recommended, faster)", "Qwen3-0.6B-Q4_0.gguf", 429),
+            ModelOption("Qwen3-0.6B Q8_0 (higher quality)", "Qwen3-0.6B-Q8_0.gguf", 805),
+        )
+
+        fun file(ctx: Context) = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "model.gguf")
         @Volatile private var cached: LocalLlm? = null
-        fun file(ctx: Context) = File(ctx.filesDir, "model.task")
-        /** Loads lazily (takes a few seconds); null when no model file is installed. */
-        fun get(ctx: Context): LocalLlm? = cached ?: synchronized(this) {
-            cached ?: file(ctx).takeIf { it.exists() && it.length() > 1_000_000 }?.let {
-                val opts = LlmInference.LlmInferenceOptions.builder().setModelPath(it.absolutePath).setMaxTokens(1024).build()
-                LocalLlm(LlmInference.createFromOptions(ctx, opts), ctx.getSharedPreferences("settings", 0).getBoolean("model.gemma", true)).also { m -> cached = m }
-            }
+        private var handle = 0L
+
+        /** Loads lazily (a few seconds); null when no model is installed. */
+        @Synchronized fun get(ctx: Context): LocalLlm? {
+            cached?.let { return it }
+            val f = file(ctx).takeIf { it.exists() && it.length() > 50_000_000 } ?: return null
+            val threads = (Runtime.getRuntime().availableProcessors() - 2).coerceIn(2, 4) // leave cores for the UI, limit heat
+            handle = NativeLlm.load(f.absolutePath, 2048, threads)
+            return LocalLlm(handle).also { cached = it }
         }
-        fun reset() { cached = null }
+        /** Frees the model's RAM (called when the app goes to background or the model changes). */
+        @Synchronized fun reset() { if (handle != 0L) NativeLlm.free(handle); handle = 0; cached = null }
     }
 }

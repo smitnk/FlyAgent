@@ -72,10 +72,25 @@ object LocalCommands {
             t.startsWith("read ", true) -> "read_file" to JSONObject().put("name", t.drop(5).trim())
             t.equals("files", true) -> "list_files" to JSONObject()
             t.startsWith("recall ", true) -> "recall" to JSONObject().put("query", t.drop(7).trim())
+            t.equals("brain", true) || t.startsWith("brain ", true) -> "brain_sim" to brainArgs(t.drop(5).trim())
             else -> null
         }
     }
-    const val HELP = "Offline commands:\nsearch <query>\nfetch <url>\nwrite <name.txt>: <content>\nread <name>\nfiles\nrecall <words>\n(attach an image to read its text offline)"
+    /** "brain" | "brain info" | "brain sugar [hz]" | "brain stim <id,id> [hz]" | "brain silence <id> [hz]" (silencing during sugar stimulation) */
+    fun brainArgs(rest: String): JSONObject {
+        val w = rest.split(Regex("\\s+")).filter { it.isNotEmpty() }
+        val hz = w.drop(1).lastOrNull()?.toDoubleOrNull()?.takeIf { it <= 400 }
+        val a = JSONObject()
+        when (w.firstOrNull()?.lowercase()) {
+            null, "info" -> a.put("action", "info")
+            "stim", "stimulate" -> a.put("stimulate", w.drop(1).filter { it.toDoubleOrNull() != hz || hz == null }.joinToString(","))
+            "silence" -> a.put("stimulate", "sugar").put("silence", org.json.JSONArray(w.drop(1).mapNotNull { it.toLongOrNull() }.filter { it > 1_000_000 }))
+            else -> a.put("stimulate", "sugar")
+        }
+        hz?.let { a.put("hz", it) }
+        return a
+    }
+    const val HELP = "Offline commands:\nsearch <query>\nfetch <url>\nwrite <name.txt>: <content>\nread <name>\nfiles\nrecall <words>\nbrain | brain sugar [hz] | brain stim <flywire ids> [hz] | brain silence <id>\n(attach an image to read its text offline)"
 }
 
 /** Skill steps are a JSON array of {tool,args}; string args equal to the original input become {input}. */

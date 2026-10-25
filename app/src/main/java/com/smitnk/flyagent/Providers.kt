@@ -70,8 +70,7 @@ class Settings(ctx: Context) {
         p.edit().putBoolean("$id.on", on).putString("$id.key", key).putString("$id.url", url).putString("$id.model", model).apply()
 
     var mode: Mode get() = Mode.valueOf(p.getString("mode", "HYBRID")!!); set(v) = p.edit().putString("mode", v.name).apply()
-    var useFlyRouter: Boolean get() = p.getBoolean("fly", true); set(v) = p.edit().putBoolean("fly", v).apply()
-    val controller: Controller get() = if (useFlyRouter) FlyRouter else ConventionalController
+    val controller: Controller get() = ConventionalController
 
     /** Enabled providers in priority order; the agent fails over down the list. */
     fun llms(): List<Llm> = providers.filter { enabled(it.id) && (key(it.id).isNotBlank() || url(it).contains("localhost")) }.map {

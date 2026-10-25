@@ -45,7 +45,7 @@ class MainActivity : Activity() {
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
         memory = MemoryDb(this); settings = Settings(this)
-        agent = Agent(memory, Tools(File(filesDir, "workspace"), memory)::run, settings::llms, Vision::describe) { LocalLlm.get(this) }
+        agent = Agent(memory, Tools(File(filesDir, "workspace"), memory) { ConnectomeBrain.get(this) }::run, settings::llms, Vision::describe) { LocalLlm.get(this) }
         val bg = if (dark) Color.parseColor("#1E1E1E") else Color.parseColor("#FAF9F5")
 
         list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(px(12), px(8), px(12), px(8)) }
@@ -74,12 +74,12 @@ class MainActivity : Activity() {
         })
         updateSubtitle()
         restoreRecent()
-        if (list.childCount == 0) bubble(false, "Hi! I'm FlyAgent. Ask me anything, attach an image with 📎, or give me a task like \"search blender rigs\".\n\nMode: ${settings.mode.label()}. Change it in the ⋮ menu.")
+        if (list.childCount == 0) bubble(false, "Hi! I'm FlyAgent. Ask me anything, attach an image with 📎, or give me a task like \"search blender rigs\".\n\nMode: ${settings.mode.label()}. Change it in the ⋮ menu. Try \"brain sugar\" to run the fruit-fly connectome.")
     }
 
     private fun Mode.label() = when (this) { Mode.OFFLINE -> "Offline (on-device only)"; Mode.CLOUD -> "Cloud only"; Mode.HYBRID -> "Hybrid (auto)" }
     private fun updateSubtitle() {
-        val brain = settings.llms().firstOrNull()?.name ?: if (LocalLlm.file(this).exists()) "on-device model" else "basic offline replies"
+        val brain = settings.llms().firstOrNull()?.name ?: if (LocalLlm.file(this).exists()) "Qwen3 on device" else "basic offline replies"
         actionBar?.subtitle = "${settings.mode.label()} · $brain"
     }
 
@@ -163,8 +163,8 @@ class MainActivity : Activity() {
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menu.add(0, 1, 0, "Mode")
         menu.add(0, 2, 0, "Cloud APIs")
-        menu.add(0, 3, 0, "Local model (offline brain)")
-        menu.add(0, 4, 0, "Bio-AGI fly router").setCheckable(true).isChecked = settings.useFlyRouter
+        menu.add(0, 3, 0, "Local LLM (Qwen3-0.6B)")
+        menu.add(0, 4, 0, "Fly brain (connectome)")
         menu.add(0, 5, 0, "Memory & skills")
         menu.add(0, 6, 0, "New chat")
         return true
@@ -176,7 +176,7 @@ class MainActivity : Activity() {
                 settings.mode = Mode.values()[i]; updateSubtitle(); d.dismiss() }.show()
             2 -> providersDialog()
             3 -> modelDialog()
-            4 -> { settings.useFlyRouter = !settings.useFlyRouter; item.isChecked = settings.useFlyRouter; toast(if (settings.useFlyRouter) "Fly router on" else "Conventional controller") }
+            4 -> brainDialog()
             5 -> memoryDialog()
             6 -> { list.removeAllViews(); history.clear(); bubble(false, "New chat started. Memory and skills are kept.") }
         }
@@ -186,12 +186,49 @@ class MainActivity : Activity() {
     private fun modelDialog() {
         val f = LocalLlm.file(this)
         val status = if (f.exists()) "Installed: ${f.length() / 1_048_576} MB" else "No local model installed."
-        AlertDialog.Builder(this).setTitle("Offline brain")
-            .setMessage("$status\n\nFor full chat with no internet, download a MediaPipe .task model once (Gemma3-1B-IT int4, about 550 MB, recommended — needs a free Hugging Face login), then tap \"Load model file\".\n\nWorks best on phones with 6 GB+ RAM. Without a model, FlyAgent gives basic offline replies.")
-            .setPositiveButton("Load model file") { _, _ -> startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_MODEL) }
-            .setNeutralButton("Open download page") { _, _ -> startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://huggingface.co/litert-community/Gemma3-1B-IT"))) }
-            .setNegativeButton(if (f.exists()) "Remove model" else "Close") { _, _ -> if (f.exists()) { f.delete(); LocalLlm.reset(); updateSubtitle() } }
+        AlertDialog.Builder(this).setTitle("Offline brain: Qwen3-0.6B")
+            .setMessage("$status\n\nQwen3-0.6B (Apache-2.0, by Alibaba Qwen) runs fully on your phone with llama.cpp. It is downloaded once from Hugging Face (ggml-org/Qwen3-0.6B-GGUF) and checked against its published SHA-256.\n\nUses about 0.6–1 GB RAM while answering. Use Wi-Fi for the download.")
+            .setPositiveButton("Download") { _, _ -> chooseModel() }
+            .setNeutralButton("Load .gguf file") { _, _ -> startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), PICK_MODEL) }
+            .setNegativeButton(if (f.exists()) "Remove model" else "Close") { _, _ -> if (f.exists()) { LocalLlm.reset(); f.delete(); updateSubtitle() } }
             .show()
+    }
+
+    private fun chooseModel() {
+        val opts = LocalLlm.MODELS
+        AlertDialog.Builder(this).setTitle("Choose model").setItems(opts.map { "${it.label} — ${it.sizeMb} MB" }.toTypedArray()) { _, i ->
+            background("Starting download…") { say -> Downloads.installModel(this, opts[i], say); "Qwen3 installed. Offline chat is ready." }
+        }.show()
+    }
+
+    /** Runs a long job off the UI thread, showing progress in a chat bubble. */
+    private fun background(start: String, job: ((String) -> Unit) -> String) {
+        val col = bubble(false, start); val tv = col.getChildAt(0) as TextView
+        Thread {
+            val msg = try { job { p -> runOnUiThread { tv.text = p } } } catch (e: Exception) { "Failed: ${e.message}" }
+            runOnUiThread { tv.text = msg; updateSubtitle() }
+        }.start()
+    }
+
+    private fun brainDialog() {
+        val full = ConnectomeBrain.fullFile(this).exists()
+        AlertDialog.Builder(this).setTitle("Fruit-fly connectome")
+            .setMessage("Real wiring data: FlyWire adult Drosophila brain v783 (CC BY 4.0). Activity is simulated with a leaky integrate-and-fire model (Shiu et al. 2024), running in C++ on this phone.\n\n" +
+                (if (full) "Full brain installed (139k neurons)." else "Using the bundled subset (sugar-taste → feeding pathway). The full brain is a one-time download of about 100 MB and needs about 200 MB RAM while loaded.") +
+                "\n\nThe LLM can call this simulator as a tool; it does not make the LLM biologically intelligent.")
+            .setPositiveButton("Run sugar → feeding test") { _, _ -> input.setText("brain sugar 100"); submit() }
+            .setNeutralButton(if (full) "Use subset" else "Download full brain") { _, _ ->
+                if (full) { ConnectomeBrain.reset(); ConnectomeBrain.fullFile(this).delete(); toast("Using subset") }
+                else background("Starting connectome download…") { say -> Downloads.installFullBrain(this, say); "Full fly brain installed. Try: brain sugar 100" }
+            }
+            .setNegativeButton("Info") { _, _ -> background("Loading connectome…") { BrainLab.info(ConnectomeBrain.get(this)) } }
+            .show()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // free the big native allocations when the app is in the background
+        if (level >= TRIM_MEMORY_BACKGROUND) { LocalLlm.reset(); ConnectomeBrain.reset() }
     }
 
     @Deprecated("platform API")
@@ -214,12 +251,12 @@ class MainActivity : Activity() {
 
     private fun installModel(uri: Uri) {
         val name = contentResolver.query(uri, null, null, null, null)?.use { c -> if (c.moveToFirst()) c.getString(c.getColumnIndexOrThrow("_display_name")) else null } ?: ""
-        if (!name.endsWith(".task") && !name.endsWith(".bin")) return toast("Pick a MediaPipe .task model file")
+        if (!name.endsWith(".gguf")) return toast("Pick a .gguf model file (e.g. Qwen3-0.6B-Q4_0.gguf)")
         toast("Copying model… this can take a minute")
         Thread {
-            val tmp = File(filesDir, "model.tmp")
+            val tmp = File(LocalLlm.file(this).parentFile, "model.tmp")
             val ok = runCatching { contentResolver.openInputStream(uri)!!.use { i -> tmp.outputStream().use { i.copyTo(it, 1 shl 20) } } }.isSuccess
-            if (ok) { LocalLlm.reset(); tmp.renameTo(LocalLlm.file(this)); getSharedPreferences("settings", 0).edit().putBoolean("model.gemma", name.lowercase().contains("gemma")).apply() } else tmp.delete()
+            if (ok) { LocalLlm.reset(); LocalLlm.file(this).delete(); tmp.renameTo(LocalLlm.file(this)) } else tmp.delete()
             runOnUiThread { toast(if (ok) "Model installed. Offline chat is ready." else "Copy failed (not enough storage?)"); updateSubtitle() }
         }.start()
     }

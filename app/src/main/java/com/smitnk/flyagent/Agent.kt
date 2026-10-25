@@ -41,7 +41,7 @@ class Agent(
             for (llm in providers) {
                 try {
                     log("Reasoning with ${llm.name}…")
-                    val (ans, ok) = cloud(llm, task, image, past, skill, steps, log, history)
+                    val (ans, ok) = reason(llm, task, image, past, skill, steps, log, history)
                     return finish(ans, ok, true)
                 } catch (e: Exception) { log("${llm.name} failed: ${e.message?.take(200)}") }
             }
@@ -59,7 +59,7 @@ class Agent(
         log(out.take(400)); return out
     }
 
-    private fun cloud(llm: Llm, task: String, image: Img?, past: List<Episode>, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit, history: List<Pair<String, String>>): Pair<String, Boolean> {
+    private fun reason(llm: Llm, task: String, image: Img?, past: List<Episode>, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit, history: List<Pair<String, String>>): Pair<String, Boolean> {
         val ctx = buildString {
             val facts = store.facts().take(10)
             if (facts.isNotEmpty()) append("User corrections/preferences:\n" + facts.joinToString("\n") { "- $it" } + "\n\n")
@@ -84,14 +84,16 @@ class Agent(
         LocalCommands.parse(task)?.let { (name, args) -> val out = exec(name, args, steps, log); return out to !out.startsWith("ERROR") }
         if (skill != null) return runSkill(skill, SkillTemplate.inputOf(task), steps, log)
         val v = vision
-        if (image != null && v != null) return runCatching { v(image.bytes) to true }.getOrElse { "Image reading failed: ${it.message}" to false }
-        SmallTalk.reply(task)?.let { return it to true }
+        val seen = if (image != null && v != null) runCatching { v(image.bytes) }.getOrElse { return "Image reading failed: ${it.message}" to false } else null
         val model = runCatching { localLlm() }.onFailure { log("Local model failed to load: ${it.message}") }.getOrNull()
+        if (seen != null && model == null) return seen to true
+        if (seen == null) SmallTalk.reply(task)?.let { return it to true }
         if (model != null) return try {
-            log("Thinking with on-device model…")
-            model.chat(CHAT_SYSTEM, history.takeLast(6) + ("user" to task), null) to true
+            log("Thinking with ${model.name}…")
+            // same tool-using loop as the cloud, run by the on-device model
+            reason(model, if (seen != null) "$task\n\n$seen" else task, null, emptyList(), skill, steps, log, history.takeLast(6))
         } catch (e: Exception) { "On-device model error: ${e.message}" to false }
-        return ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local model). For full answers, add an API key (⋮ → Cloud APIs).\n\n" + SmallTalk.HELP) to false
+        return ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local LLM). For full answers, add an API key (⋮ → Cloud APIs).\n\n" + SmallTalk.HELP) to false
     }
 
     fun runSkill(skill: Skill, input: String, steps: MutableList<Pair<String, JSONObject>> = mutableListOf(), log: (String) -> Unit = {}): Pair<String, Boolean> {
@@ -125,7 +127,6 @@ class Agent(
 
     companion object {
         const val MAX_STEPS = 8
-        const val CHAT_SYSTEM = "You are FlyAgent, a friendly, concise assistant running offline on the user's phone. Answer helpfully and honestly; say when you are not sure. Never help with illegal or harmful activity or with obtaining private data."
         val SYSTEM = """
 You are FlyAgent, an assistant on the user's Android phone. Work step by step using tools.
 Reply with ONLY one JSON object per turn:
@@ -135,9 +136,11 @@ Reply with ONLY one JSON object per turn:
 {"tool":"read_file","args":{"name":"..."}}
 {"tool":"list_files","args":{}}
 {"tool":"recall","args":{"query":"..."}}
+{"tool":"brain_sim","args":{"stimulate":"sugar","hz":100,"silence":[]}}  (runs the fruit-fly connectome model; "stimulate" may be a list of FlyWire IDs)
 {"final":"your answer, citing source URLs you actually found"}
 For greetings or normal conversation, reply directly with {"final":"..."} — use tools only when needed.
 If an image is attached, describe/read it directly.
+When you report brain_sim results, say the connectivity is real FlyWire data but the activity is a model simulation.
 """.trimIndent() + "\n" + Safety.PROMPT_RULES
     }
 }

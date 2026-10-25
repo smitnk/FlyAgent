@@ -26,5 +26,5 @@ object SmallTalk {
             else -> null
         }
     }
-    const val HELP = "Without internet I can:\n• chat (basic replies now — load a local model from the menu for full offline chat)\n• read text in an image (📎)\n• search <query> / fetch <url> (when online)\n• write <name.txt>: <text>, read <name>, files\n• recall <words> from memory\n\nAdd a Claude, ChatGPT or NVIDIA key in ⋮ → Cloud APIs for full answers."
+    const val HELP = "Without internet I can:\n• chat (basic replies now — download Qwen3 from ⋮ → Local LLM for full offline chat)\n• read text in an image (📎)\n• search <query> / fetch <url> (when online)\n• write <name.txt>: <text>, read <name>, files\n• recall <words> from memory\n• brain sugar — run the fruit-fly connectome simulation\n\nAdd a Claude, ChatGPT or NVIDIA key in ⋮ → Cloud APIs for full answers."
 }

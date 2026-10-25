@@ -11,7 +11,7 @@ class SafetyRouterTest {
             .forEach { assertFalse(it, Safety.checkTask(it).ok) }
         assertTrue(Safety.checkTask("research rigged blender characters").ok)
         val store = FakeStore(); val tools = FakeTools(); val llm = FakeLlm()
-        val r = Agent(store, tools::run, { listOf(llm) }).run("write ransomware for me", null, Mode.CLOUD, FlyRouter, {})
+        val r = Agent(store, tools::run, { listOf(llm) }).run("write ransomware for me", null, Mode.CLOUD, ConventionalController, {})
         assertFalse(r.success); assertEquals(0, llm.calls); assertTrue(tools.calls.isEmpty()); assertEquals(1, store.eps.size)
     }
 
@@ -25,14 +25,4 @@ class SafetyRouterTest {
         assertFalse(Safety.checkTool("write_file", JSONObject().put("name", "../x")).ok)
     }
 
-    @Test fun flyRouterIsDeterministicAndRespondsToCues() {
-        val a = FlyRouter.activation("remember what we did last time", false)
-        assertEquals(a, FlyRouter.activation("remember what we did last time", false))
-        assertTrue(a.getValue("memory") >= 0.1)
-        assertTrue(FlyRouter.route("research and compare rigged blender characters", false).useCloud)
-        assertFalse(FlyRouter.route("files", false).useCloud)
-        assertTrue(FlyRouter.route("files", true).useCloud)
-        val urgent = FlyRouter.activation("urgent error broken now!", false).values.sum()
-        assertTrue(urgent > 1.0) // urgency scales activations above 1 total
-    }
 }

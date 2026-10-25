@@ -3,3 +3,7 @@ build/
 local.properties
 *.iml
 .idea/
+app/src/main/assets/fly783_subset.bin
+build/
+ext/
+.cxx/

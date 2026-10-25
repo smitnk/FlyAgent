@@ -9,7 +9,7 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 
 /** Tool executor + safety controller: file access is confined to the app workspace. */
-class Tools(val workspace: File, private val memory: Store) {
+class Tools(val workspace: File, private val memory: Store, private val brain: () -> BrainEngine? = { null }) {
     init { workspace.mkdirs() }
 
     fun run(name: String, args: JSONObject): String = try {
@@ -21,6 +21,7 @@ class Tools(val workspace: File, private val memory: Store) {
             "read_file" -> safeFile(args.getString("name")).readText().take(8000)
             "list_files" -> workspace.listFiles()?.joinToString("\n") { "${it.name} (${it.length()} B)" }.orEmpty().ifEmpty { "(empty)" }
             "recall" -> memory.recall(args.getString("query"), 5).joinToString("\n") { "#${it.id} ${it.task} -> ${it.outcome.take(200)}" }.ifEmpty { "(no matching memories)" }
+            "brain_sim" -> BrainLab.run(brain(), args)
             else -> "ERROR: unknown tool $name"
         }
     } catch (e: Exception) { "ERROR: ${e.javaClass.simpleName}: ${e.message}" }

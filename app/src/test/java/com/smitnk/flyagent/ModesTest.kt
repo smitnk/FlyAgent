@@ -9,7 +9,7 @@ class ModesTest {
 
     @Test fun offlineNeverCallsModelAndRunsLocalCommand() {
         val llm = FakeLlm(); val tools = FakeTools(); val store = FakeStore()
-        val r = Agent(store, tools::run, { listOf(llm) }).run("write a.txt: hi", null, Mode.OFFLINE, FlyRouter, log)
+        val r = Agent(store, tools::run, { listOf(llm) }).run("write a.txt: hi", null, Mode.OFFLINE, ConventionalController, log)
         assertTrue(r.success); assertFalse(r.usedCloud); assertEquals(0, llm.calls); assertEquals(listOf("write_file"), tools.calls)
         assertEquals(1, store.eps.size)
     }
@@ -17,7 +17,7 @@ class ModesTest {
     @Test fun offlineReadsImageWithOnDeviceVision() {
         val llm = FakeLlm()
         val r = Agent(FakeStore(), FakeTools()::run, { listOf(llm) }, { "TEXT: hello" })
-            .run("what does this say", Img("AA==", "image/jpeg", ByteArray(1)), Mode.OFFLINE, FlyRouter, log)
+            .run("what does this say", Img("AA==", "image/jpeg", ByteArray(1)), Mode.OFFLINE, ConventionalController, log)
         assertEquals("TEXT: hello", r.answer); assertEquals(0, llm.calls)
     }
 
@@ -31,36 +31,36 @@ class ModesTest {
 
     @Test fun cloudOnlyDoesNotFallBackToLocal() {
         val tools = FakeTools()
-        val r = Agent(FakeStore(), tools::run, { listOf(FakeLlm(fail = true)) }).run("files", null, Mode.CLOUD, FlyRouter, log)
+        val r = Agent(FakeStore(), tools::run, { listOf(FakeLlm(fail = true)) }).run("files", null, Mode.CLOUD, ConventionalController, log)
         assertFalse(r.success); assertTrue(tools.calls.isEmpty())
     }
 
     @Test fun cloudFailsOverToNextProvider() {
         val second = FakeLlm("second")
-        val r = Agent(FakeStore(), FakeTools()::run, { listOf(FakeLlm(fail = true), second) }).run("plan a trip", null, Mode.CLOUD, FlyRouter, log)
+        val r = Agent(FakeStore(), FakeTools()::run, { listOf(FakeLlm(fail = true), second) }).run("plan a trip", null, Mode.CLOUD, ConventionalController, log)
         assertTrue(r.success); assertEquals(1, second.calls)
     }
 
     @Test fun hybridKeepsSimpleCommandLocal() {
         val llm = FakeLlm()
-        val r = Agent(FakeStore(), FakeTools()::run, { listOf(llm) }).run("files", null, Mode.HYBRID, FlyRouter, log)
+        val r = Agent(FakeStore(), FakeTools()::run, { listOf(llm) }).run("files", null, Mode.HYBRID, ConventionalController, log)
         assertFalse(r.usedCloud); assertEquals(0, llm.calls)
     }
 
     @Test fun hybridSendsComplexTaskToCloudAndFallsBackWhenOffline() {
         val ok = FakeLlm()
-        assertTrue(Agent(FakeStore(), FakeTools()::run, { listOf(ok) }).run("research and compare rigged blender characters", null, Mode.HYBRID, FlyRouter, log).usedCloud)
+        assertTrue(Agent(FakeStore(), FakeTools()::run, { listOf(ok) }).run("research and compare rigged blender characters", null, Mode.HYBRID, ConventionalController, log).usedCloud)
         val tools = FakeTools()
         val r = Agent(FakeStore(), tools::run, { listOf(FakeLlm(fail = true)) }).run("search blender rigs", null, Mode.HYBRID, ConventionalController, log)
         assertTrue(r.success); assertFalse(r.usedCloud); assertEquals(listOf("web_search"), tools.calls)
         val img = Agent(FakeStore(), FakeTools()::run, { listOf(FakeLlm(fail = true)) }, { "labels: cat" })
-            .run("what is this", Img("AA==", "image/jpeg", ByteArray(1)), Mode.HYBRID, FlyRouter, log)
+            .run("what is this", Img("AA==", "image/jpeg", ByteArray(1)), Mode.HYBRID, ConventionalController, log)
         assertFalse(img.usedCloud); assertEquals("labels: cat", img.answer) // cloud failed → on-device vision
     }
 
     @Test fun piiIsRedactedBeforeCloud() {
         val llm = FakeLlm()
-        Agent(FakeStore(), FakeTools()::run, { listOf(llm) }).run("my card 4111 1111 1111 1111 password: hunter2 explain", null, Mode.CLOUD, FlyRouter, log)
+        Agent(FakeStore(), FakeTools()::run, { listOf(llm) }).run("my card 4111 1111 1111 1111 password: hunter2 explain", null, Mode.CLOUD, ConventionalController, log)
         val sent = llm.lastMsgs.first().second
         assertFalse(sent.contains("4111")); assertFalse(sent.contains("hunter2"))
     }
@@ -68,14 +68,14 @@ class ModesTest {
     @Test fun feedbackCreatesTestedSkillThenReusesItOffline() {
         val store = FakeStore(); val tools = FakeTools()
         val agent = Agent(store, tools::run, { emptyList() })
-        val first = agent.run("search rigged blender characters", null, Mode.OFFLINE, FlyRouter, log)
+        val first = agent.run("search rigged blender characters", null, Mode.OFFLINE, ConventionalController, log)
         val skill = agent.feedback(first.episodeId, true, "", log)!!
         assertEquals("reliable", skill.status); assertEquals(1, skill.version)
         assertTrue(skill.steps.contains("{input}"))
         assertEquals("rigged blender characters", SkillTemplate.expand(skill.steps, "rigged blender characters")[0].second.getString("query"))
         // later session, natural phrasing (not a command) → matched skill runs offline
         tools.calls.clear()
-        val r = agent.run("rigged blender characters search", null, Mode.OFFLINE, FlyRouter, log)
+        val r = agent.run("rigged blender characters search", null, Mode.OFFLINE, ConventionalController, log)
         assertTrue(r.success); assertEquals(listOf("web_search"), tools.calls)
         assertEquals(2, agent.feedback(first.episodeId, true, "", log)!!.version) // re-learning bumps version
     }
@@ -83,9 +83,9 @@ class ModesTest {
     @Test fun negativeFeedbackStoresCorrectionUsedLater() {
         val store = FakeStore(); val llm = FakeLlm()
         val agent = Agent(store, FakeTools()::run, { listOf(llm) })
-        val r = agent.run("summarise blender news", null, Mode.CLOUD, FlyRouter, log)
+        val r = agent.run("summarise blender news", null, Mode.CLOUD, ConventionalController, log)
         assertNull(agent.feedback(r.episodeId, false, "Use only blender.org sources", log))
-        agent.run("summarise blender news", null, Mode.CLOUD, FlyRouter, log)
+        agent.run("summarise blender news", null, Mode.CLOUD, ConventionalController, log)
         assertTrue(llm.lastMsgs.first().second.contains("Use only blender.org sources"))
     }
 
