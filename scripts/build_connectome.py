@@ -59,7 +59,7 @@ for hop in range(3):
     new = set(post[m].tolist()) - sel
     if len(sel) + len(new) > 6000:  # keep the bundled asset small: strongest targets first
         s = pd.Series(np.abs(w[m]), index=post[m]).groupby(level=0).sum().drop(list(sel), errors="ignore")
-        new = set(s.sort_values(ascending=False).index[: 6000 - len(sel)].tolist())
+        new = set(s.sort_index().sort_values(ascending=False, kind="stable").index[: 6000 - len(sel)].tolist())  # stable: same subset every build
     print(f"hop {hop+1}: +{len(new)}"); sel |= new; frontier = new
     if not new: break
 sel.add(idx[MN9]); print("MN9 reached by pathway expansion:", idx[MN9] in sel)

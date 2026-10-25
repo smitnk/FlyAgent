@@ -36,3 +36,18 @@
 4. Consolidation/compression, hash verification, corruption detection tests.
 5. Optional downloadable quantized local model (not in base APK).
 6. Drive backup, WorkManager task recovery, controlled browser.
+
+## v0.4 — real connectome + local LLM (replaces the 6-population router)
+```
+UI (chat) ─► Agent ─► Safety ─► reasoning: cloud LLM | Qwen3-0.6B (llama.cpp, JNI) | rules
+                       │
+                       ├─ Tools: web, files, recall, brain_sim ─► BrainLab ─► ConnectomeBrain (JNI) ─► C++ LIF engine
+                       └─ Memory (SQLite): episodes, facts, skills
+```
+- `app/src/main/cpp/connectome.cpp`: CSR connectome, exact linear integration (dt 0.1 ms), 1.8 ms synaptic delay ring,
+  2.2 ms refractory, Poisson drive (w_syn·f_poi), event-driven updates (only neurons away from rest are integrated).
+  File integrity is checked on load (CSR monotonic, targets in range, finite weights).
+- Data pipeline: `scripts/build_connectome.py` (CI) → `fly783_subset.bin` (asset) + `fly783_full.bin.gz` (release, .sha256).
+- Validation: `native-test/sim_cli` + `scripts/validate_sim.py` fail CI if the full-brain result diverges from the paper (r ≤ 0.8 or MN9 silent).
+  Reference is the paper's v630 run; 1 of the 21 sugar GRN IDs no longer exists in v783 and is reported, not replaced.
+- Resources: model and connectome are loaded lazily and freed on `onTrimMemory(BACKGROUND)`. LLM uses mmap, 2–4 threads, 2048-token context.
