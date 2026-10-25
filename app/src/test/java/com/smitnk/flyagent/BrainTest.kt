@@ -49,7 +49,7 @@ class BrainTest {
 
     @Test fun agentRunsBrainOfflineAndStoresVerifiedResult() {
         val store = FakeStore(); val brain = FakeBrain()
-        val tools = Tools(java.io.File(System.getProperty("java.io.tmpdir"), "fa-test"), store) { brain }
+        val tools = Tools(java.io.File(System.getProperty("java.io.tmpdir"), "fa-test"), store, { brain })
         val r = Agent(store, tools::run, { emptyList() }).run("brain sugar", null, Mode.OFFLINE, ConventionalController, {})
         assertTrue(r.success); assertTrue(r.answer.contains("MN9")); assertEquals(1, brain.calls.size)
         assertTrue(store.eps.single().steps.contains("brain_sim"))
@@ -70,7 +70,7 @@ class LocalGroundingTest {
 
     @Test fun localModelGetsRealSimulationResultsAndNoStaleHistory() {
         val brain = FakeBrain(); val store = FakeStore()
-        val tools = Tools(java.io.File(System.getProperty("java.io.tmpdir"), "fa-test2"), store) { brain }
+        val tools = Tools(java.io.File(System.getProperty("java.io.tmpdir"), "fa-test2"), store, { brain })
         val local = FakeLlm("qwen", mutableListOf("MN9 fired at 12.5 Hz, so sugar drives feeding."))
         val r = Agent(store, tools::run, { emptyList() }, null, { local })
             .run("Run brain sugar 100 and explain MN9 using the actual results", null, Mode.OFFLINE, ConventionalController, {},
