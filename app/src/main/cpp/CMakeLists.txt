@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.22.1)
 project(flyagent CXX C)
+# never ship unoptimized inference code, whatever build type Gradle passes
+set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 set(CMAKE_CXX_STANDARD 17)
 
 include(FetchContent)

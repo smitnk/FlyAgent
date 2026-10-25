@@ -12,6 +12,8 @@ android {
         versionCode = 4
         versionName = "0.4.0"
         ndk { abiFilters += "arm64-v8a" } // 64-bit ARM phones; llama.cpp and the connectome need 64-bit
+        // Debug APKs default to -O0 native code, which makes llama.cpp 10-50x slower: always build native code optimized
+        externalNativeBuild { cmake { arguments += listOf("-DCMAKE_BUILD_TYPE=Release") } }
     }
     buildTypes { release { isMinifyEnabled = false } }
     compileOptions {

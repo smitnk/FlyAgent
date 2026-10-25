@@ -105,7 +105,7 @@ class Agent(
         }
         val grounded = toolOut != null || seen != null
         val prompt = buildString {
-            toolOut?.let { append("Output of the fly-brain simulation that was just run on this phone:\n$it\n\n") }
+            toolOut?.let { append("Fly-brain simulation result (run on this phone):\n${it.lines().takeWhile { l -> !l.startsWith("Most active") }.drop(1).joinToString("\n")}\n\n") }
             seen?.let { append("What the phone's image reader found:\n$it\n\n") }
             append(if (grounded) "Using only the information above (do not invent numbers), answer: $task" else task)
         }
@@ -113,7 +113,7 @@ class Agent(
         val msgs = (if (grounded) emptyList() else history.takeLast(4)) + ("user" to prompt)
         log("Thinking with ${model.name}…")
         return try {
-            val ans = model.chatStream(LOCAL_SYSTEM, msgs, 384) { onToken(it) && !stopped }
+            val ans = model.chatStream(LOCAL_SYSTEM, msgs, 200) { onToken(it) && !stopped }
             val text = ans.ifBlank { "(no answer)" } + if (stopped) " …(stopped)" else ""
             (if (toolOut != null) "$text\n\n— Simulation output —\n$toolOut" else text) to true
         } catch (e: Exception) { (toolOut ?: "On-device model error: ${e.message}") to (toolOut != null) }

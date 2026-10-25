@@ -78,6 +78,7 @@ class LocalGroundingTest {
         assertEquals(1, brain.calls.size)                              // app ran the simulator itself
         assertEquals(1, local.lastMsgs.size)                           // old "4+4 = 8" turn not sent
         assertTrue(local.lastMsgs.single().second.contains("MN9 (feeding motor neuron): 12.5 Hz"))
+        assertFalse(local.lastMsgs.single().second.contains("Most active")) // long ID list kept out of the small model's prompt
         assertTrue(r.answer.startsWith("MN9 fired at 12.5 Hz")); assertTrue(r.answer.contains("— Simulation output —"))
     }
 

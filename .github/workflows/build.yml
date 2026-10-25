@@ -85,3 +85,7 @@ jobs:
           gh release view connectome-v783 >/dev/null 2>&1 || gh release create connectome-v783 --title "FlyWire v783 connectome (FLYC format)" \
             --notes "Full adult Drosophila brain connectivity from FlyWire v783 (CC BY 4.0, doi:10.5281/zenodo.10676866; Dorkenwald et al. 2024, Schlegel et al. 2024), via the Shiu et al. 2024 export (MIT). Converted by scripts/build_connectome.py; no edges added or changed."
           gh release upload connectome-v783 fly783_full.bin.gz fly783_full.bin.gz.sha256 --clobber
+      - name: Check Android native code is optimized
+        run: |
+          f=$(find app/.cxx -name build.ninja -path "*arm64-v8a*" | head -1)
+          grep -q -- "-O3" "$f" && ! grep -q -- " -O0 " "$f" && echo "::notice::arm64 native code built with -O3" || { echo "::error::native code not optimized"; exit 1; }
