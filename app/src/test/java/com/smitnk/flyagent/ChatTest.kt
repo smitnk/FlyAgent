@@ -16,13 +16,13 @@ class ChatTest {
         assertTrue(r.success); assertTrue(r.answer.startsWith("Hi"))
     }
 
-    @Test fun offlineUsesLocalModelWithHistoryAndNeverCloud() {
+    @Test fun offlineUsesLocalModelWithoutHistoryAndNeverCloud() {
         val local = FakeLlm("local", mutableListOf("Paris is the capital of France."))
         val cloud = FakeLlm("cloud")
         val r = Agent(FakeStore(), FakeTools()::run, { listOf(cloud) }, null, { local })
             .run("capital of france?", null, Mode.OFFLINE, ConventionalController, {}, listOf("user" to "hi", "assistant" to "Hello!"))
         assertEquals("Paris is the capital of France.", r.answer); assertEquals(0, cloud.calls)
-        assertEquals(listOf("user", "assistant", "user"), local.lastMsgs.map { it.first })
+        assertEquals(listOf("user"), local.lastMsgs.map { it.first }) // small model only sees the current question
     }
 
     @Test fun hybridWithoutApiFallsBackToLocalModel() {

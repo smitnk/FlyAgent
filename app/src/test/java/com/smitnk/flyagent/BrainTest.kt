@@ -88,3 +88,22 @@ class LocalGroundingTest {
         assertTrue(r.answer.endsWith("(stopped)"))
     }
 }
+
+class LocalAnswerTest {
+    @Test fun searchIntent() {
+        assertEquals("today's top 10 news", SearchIntent.query("Ok find me today's top 10 news"))
+        assertNull(SearchIntent.query("what kind of assistance do you provide"))
+        assertNull(SearchIntent.query("search blender rigs")) // plain command, handled directly
+    }
+
+    @Test fun localModelGetsNoHistoryAndSearchResultsForNews() {
+        val tools = FakeTools(); val local = FakeLlm("qwen", mutableListOf("Top story: example."))
+        val r = Agent(FakeStore(), tools::run, { emptyList() }, null, { local })
+            .run("Ok find me today's top 10 news", null, Mode.OFFLINE, ConventionalController, {},
+                listOf("user" to "hi", "assistant" to "I am here to help with your questions."))
+        assertEquals(listOf("web_search"), tools.calls)
+        assertEquals(1, local.lastMsgs.size)                          // no copied earlier replies
+        assertTrue(local.lastMsgs.single().second.contains("Web search results"))
+        assertTrue(r.answer.contains("— Sources —"))
+    }
+}

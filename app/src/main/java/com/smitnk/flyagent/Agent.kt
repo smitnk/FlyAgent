@@ -97,6 +97,7 @@ class Agent(
         // A 0.6B model can't reliably drive a JSON tool loop, so the app runs the needed tool itself
         // and asks the model one short question grounded in the real output.
         val toolOut = BrainIntent.args(task)?.let { exec("brain_sim", it, steps, log) }
+            ?: SearchIntent.query(task)?.let { q -> exec("web_search", JSONObject().put("query", q), steps, log).takeUnless { it.startsWith("ERROR") } }
         val model = runCatching { localLlm() }.onFailure { log("Local model failed to load: ${it.message}") }.getOrNull()
         if (model == null) return when {
             toolOut != null -> toolOut to !toolOut.startsWith("ERROR")
@@ -105,18 +106,21 @@ class Agent(
         }
         val grounded = toolOut != null || seen != null
         val prompt = buildString {
-            toolOut?.let { append("Fly-brain simulation result (run on this phone):\n${it.lines().takeWhile { l -> !l.startsWith("Most active") }.drop(1).joinToString("\n")}\n\n") }
+            toolOut?.let { out ->
+                if (out.startsWith(BrainLab.TAG)) append("Fly-brain simulation result (run on this phone):\n${out.lines().takeWhile { l -> !l.startsWith("Most active") }.drop(1).joinToString("\n")}\n\n")
+                else append("Web search results:\n${out.take(2500)}\n\n")
+            }
             seen?.let { append("What the phone's image reader found:\n$it\n\n") }
             append(if (grounded) "Using only the information above (do not invent numbers), answer: $task" else task)
         }
-        // grounded questions get no chat history, so earlier turns can't leak into the answer
-        val msgs = (if (grounded) emptyList() else history.takeLast(4)) + ("user" to prompt)
+        // A 0.6B model copies earlier replies when it sees them, so it only gets the current question.
+        val msgs = listOf("user" to prompt)
         log("Thinking with ${model.name}…")
         return try {
             val ans = model.chatStream(LOCAL_SYSTEM, msgs, 200) { onToken(it) && !stopped }
             model.lastStats.takeIf { it.isNotBlank() }?.let { log("Speed: $it") }
             val text = ans.ifBlank { "(no answer)" } + if (stopped) " …(stopped)" else ""
-            (if (toolOut != null) "$text\n\n— Simulation output —\n$toolOut" else text) to true
+            (if (toolOut != null) "$text\n\n— ${if (toolOut.startsWith(BrainLab.TAG)) "Simulation output" else "Sources"} —\n$toolOut" else text) to true
         } catch (e: Exception) { (toolOut ?: "On-device model error: ${e.message}") to (toolOut != null) }
     }
 
@@ -151,7 +155,11 @@ class Agent(
 
     companion object {
         const val MAX_STEPS = 8
-        const val LOCAL_SYSTEM = "You are FlyAgent, a helpful assistant running offline on the user's phone. Answer briefly, clearly and accurately. When information is given, use only that information. Never help with illegal or harmful activity."
+        const val LOCAL_SYSTEM = "You are FlyAgent, an assistant app on the user's Android phone. Your abilities: chat and answer questions, " +
+            "search the web and summarise results, read images and attached files (including ZIP archives), save files and pages, " +
+            "remember past tasks and learn skills from the user's 👍 feedback, and run a fruit-fly brain simulation built from the real FlyWire connectome. " +
+            "Answer the user's actual question directly and specifically in a few sentences. When information is given, use only that information. " +
+            "Never help with illegal or harmful activity."
         val SYSTEM = """
 You are FlyAgent, an assistant on the user's Android phone. Work step by step using tools.
 Reply with ONLY one JSON object per turn:

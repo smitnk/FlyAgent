@@ -82,10 +82,13 @@ std::string chat(Engine* e, const std::vector<std::string>& roles, const std::ve
     }
     auto sp = llama_sampler_chain_default_params();
     llama_sampler* smpl = llama_sampler_chain_init(sp);
-    // Qwen3 non-thinking recommended sampling: temp 0.7, top_p 0.8
+    // Qwen3 non-thinking recommended sampling: top_k 20, top_p 0.8, temp 0.7, presence penalty 1.5 (quantized models
+    // otherwise loop and repeat); fresh random seed each reply
+    llama_sampler_chain_add(smpl, llama_sampler_init_top_k(20));
     llama_sampler_chain_add(smpl, llama_sampler_init_top_p(0.8f, 1));
+    llama_sampler_chain_add(smpl, llama_sampler_init_penalties(64, 1.0f, 0.0f, 1.5f));
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
-    llama_sampler_chain_add(smpl, llama_sampler_init_dist(1234));
+    llama_sampler_chain_add(smpl, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
 
     auto t1 = clk::now();
     int generated = 0;

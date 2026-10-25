@@ -98,6 +98,16 @@ object LocalCommands {
     const val HELP = "Offline commands:\nsearch <query>\nfetch <url>\nwrite <name.txt>: <content>\nread <name>\nfiles\nrecall <words>\nbrain | brain sugar [hz] | brain stim <flywire ids> [hz] | brain silence <id>\n(attach an image to read its text offline)"
 }
 
+/** Requests that need fresh web information, e.g. "find me today's top 10 news". */
+object SearchIntent {
+    private val trigger = Regex("\\b(news|latest|today'?s?|current|search|look up|find|weather|price|score|who is|what happened)\\b")
+    fun query(task: String): String? {
+        val t = task.lowercase()
+        if (!trigger.containsMatchIn(t) || LocalCommands.parse(task) != null) return null
+        return task.replace(Regex("(?i)^(ok|okay|please|hey)?[ ,]*(find|search( for)?|look up|tell)( me)?\\s*"), "").trim().ifEmpty { task }
+    }
+}
+
 /** Natural-language requests for the fly-brain simulator, e.g. "run the sugar brain experiment and explain MN9". */
 object BrainIntent {
     fun args(task: String): JSONObject? {
