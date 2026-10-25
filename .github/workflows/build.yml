@@ -30,7 +30,10 @@ jobs:
           ls -la ext/shiu
           sha256sum ext/shiu/Connectivity_783.parquet ext/shiu/Completeness_783.csv
       - name: Convert connectome
-        run: mkdir -p build && python scripts/build_connectome.py ext/shiu build/connectome app/src/main/assets/fly783_subset.bin | tee build/convert.log && grep -E "FlyWire|wrote|MN9|reference" build/convert.log | sed 's/^/::notice::/'
+        run: |
+          set -o pipefail; mkdir -p build
+          python -u scripts/build_connectome.py ext/shiu build/connectome app/src/main/assets/fly783_subset.bin 2>&1 | tee build/convert.log || { tail -15 build/convert.log | sed 's/^/::error::/'; exit 1; }
+          grep -vE "^\s*$" build/convert.log | sed 's/^/::notice::/'
 
       # 2) Native engine tests on the real data, validated against the paper's own Brian2 output
       - name: Build native code for host
@@ -38,6 +41,7 @@ jobs:
       - run: build/host/engine_test
       - name: Simulate sugar GRN activation (full brain + subset)
         run: |
+          set -o pipefail
           for f in full subset; do
             src=build/connectome/fly783_full.bin; [ $f = subset ] && src=app/src/main/assets/fly783_subset.bin
             build/host/sim_cli $src build/connectome/sugar_ids.txt 100 10 build/connectome/ours_$f.json | tee build/sim_$f.log

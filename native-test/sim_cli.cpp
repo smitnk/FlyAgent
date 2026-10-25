@@ -11,6 +11,7 @@ int main(int argc, char** argv) {
     std::unordered_map<int64_t, uint32_t> idx; for (uint32_t i = 0; i < c.n(); i++) idx[c.ids[i]] = i;
     std::vector<uint32_t> exc; std::ifstream in(argv[2]); long long id;
     while (in >> id) if (idx.count(id)) exc.push_back(idx[id]);
+    if (exc.empty()) { std::fprintf(stderr, "none of the stimulus IDs are in this connectome\n"); return 1; }
     int trials = std::atoi(argv[4]);
     auto r = fly::simulate(c, exc, std::atof(argv[3]), {}, 1000, trials, 1234);
     std::FILE* o = std::fopen(argv[5], "w"); std::fprintf(o, "{");
