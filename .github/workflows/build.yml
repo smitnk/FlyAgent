@@ -24,9 +24,10 @@ jobs:
       - name: Fetch FlyWire v783 connectivity (Shiu et al.)
         run: |
           if [ ! -f ext/shiu/Connectivity_783.parquet ]; then
-            git init -q ext/shiu && cd ext/shiu
-            git fetch -q --depth 1 https://github.com/philshiu/Drosophila_brain_model.git $SHIU_COMMIT && git checkout -q FETCH_HEAD
+            rm -rf ext/shiu && git clone --depth 1 https://github.com/philshiu/Drosophila_brain_model.git ext/shiu
+            [ "$(git -C ext/shiu rev-parse HEAD)" = "$SHIU_COMMIT" ] || echo "::warning::upstream moved past pinned commit $SHIU_COMMIT"
           fi
+          ls -la ext/shiu
           sha256sum ext/shiu/Connectivity_783.parquet ext/shiu/Completeness_783.csv
       - name: Convert connectome
         run: mkdir -p build && python scripts/build_connectome.py ext/shiu build/connectome app/src/main/assets/fly783_subset.bin | tee build/convert.log && grep -E "FlyWire|wrote|MN9|reference" build/convert.log | sed 's/^/::notice::/'
