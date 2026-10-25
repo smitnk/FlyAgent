@@ -7,10 +7,12 @@
 int main(int argc, char** argv) {
     std::string err;
     auto t0 = std::chrono::steady_clock::now();
+    std::printf("::notice::CPU backend: %s\n", flyllm::loadBackends(argc > 2 ? argv[2] : "").c_str());
     auto* e = flyllm::load(argv[1], 2048, 4, err);
     if (!e) { std::fprintf(stderr, "load: %s\n", err.c_str()); return 1; }
     auto out = flyllm::chat(e, {"system", "user"}, {"You are a concise assistant.", "What is the capital of France? Answer in one word. /no_think"}, 64, nullptr, err);
     double s = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    std::printf("::notice::LLM speed: %s\n", flyllm::stats(e).c_str());
     std::printf("reply: [%s]\nerr: [%s] total %.1fs\n", out.c_str(), err.c_str(), s);
     std::string shown = out.substr(out.find("</think>") == std::string::npos ? 0 : out.find("</think>") + 8);
     for (auto& ch : shown) if (ch == '\n') ch = ' ';

@@ -54,13 +54,16 @@ object Downloads {
     fun installModel(ctx: Context, m: LocalLlm.Companion.ModelOption, progress: (String) -> Unit): File {
         val url = LocalLlm.REPO + m.file
         val expected = hfSha256(url)
-        val tmp = File(LocalLlm.file(ctx).parentFile, "model.download")
+        val tmp = File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "model.download") // DownloadManager can only write here
         fetch(ctx, url, tmp, "FlyAgent: ${m.label}") { progress("Downloading model… $it%") }
         progress("Verifying…")
         val got = sha256(tmp)
         if (expected != null && got != expected) { tmp.delete(); error("checksum mismatch — download corrupted, please retry") }
         LocalLlm.reset()
-        val f = LocalLlm.file(ctx); f.delete(); if (!tmp.renameTo(f)) error("could not install model")
+        val f = LocalLlm.file(ctx); f.delete()
+        if (!tmp.renameTo(f)) { // different filesystems: copy into internal storage
+            tmp.inputStream().use { i -> f.outputStream().use { i.copyTo(it, 1 shl 20) } }; tmp.delete()
+        }
         return f
     }
 

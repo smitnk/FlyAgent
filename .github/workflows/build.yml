@@ -59,7 +59,7 @@ jobs:
           curl -sI "$MODEL_URL" | grep -iE "^(HTTP|x-linked-etag|x-linked-size)" | sed 's/^/::notice::model /'
           [ -f build/model/q.gguf ] || curl -sfL -o build/model/q.gguf "$MODEL_URL"
           echo "::notice::model sha256 $(sha256sum build/model/q.gguf | cut -c1-64) size $(stat -c%s build/model/q.gguf)"
-          build/host/llm_test build/model/q.gguf
+          build/host/llm_test build/model/q.gguf build/host/bin
 
       # 4) Android build + JVM tests
       - uses: gradle/actions/setup-gradle@v4
@@ -89,5 +89,8 @@ jobs:
         run: |
           f=$(find app/.cxx -name compile_commands.json -path "*arm64-v8a*" | head -1)
           cmd=$(python -c "import json,sys; c=[e['command'] for e in json.load(open('$f')) if e['file'].endswith('ggml-cpu.c')]; print(c[0] if c else '')")
+          echo "::notice::arm64 CPU variants in APK: $(unzip -l app/build/outputs/apk/debug/*.apk | grep -o 'libggml-cpu-[^ ]*\.so' | tr '\n' ' ')"
           echo "::notice::ggml-cpu.c flags: $(echo "$cmd" | grep -oE ' -O[0-3s]| -march=[^ ]+| -mcpu=[^ ]+' | tr '\n' ' ')"
           echo "$cmd" | grep -q -- " -O3" && ! echo "$cmd" | grep -q -- " -O0" || { echo "::error::llama.cpp not optimized"; exit 1; }
+          n=$(unzip -l app/build/outputs/apk/debug/*.apk | grep -c 'libggml-cpu-android')
+          [ "$n" -ge 4 ] || { echo "::error::expected 4 ARM CPU variants in APK, found $n"; exit 1; }

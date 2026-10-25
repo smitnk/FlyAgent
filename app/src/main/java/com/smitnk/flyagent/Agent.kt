@@ -114,6 +114,7 @@ class Agent(
         log("Thinking with ${model.name}…")
         return try {
             val ans = model.chatStream(LOCAL_SYSTEM, msgs, 200) { onToken(it) && !stopped }
+            model.lastStats.takeIf { it.isNotBlank() }?.let { log("Speed: $it") }
             val text = ans.ifBlank { "(no answer)" } + if (stopped) " …(stopped)" else ""
             (if (toolOut != null) "$text\n\n— Simulation output —\n$toolOut" else text) to true
         } catch (e: Exception) { (toolOut ?: "On-device model error: ${e.message}") to (toolOut != null) }

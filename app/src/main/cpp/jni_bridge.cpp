@@ -46,6 +46,12 @@ JNIEXPORT jlongArray JNICALL Java_com_smitnk_flyagent_NativeBrain_simulate(JNIEn
 }
 JNIEXPORT void JNICALL Java_com_smitnk_flyagent_NativeBrain_cancel(JNIEnv*, jclass) { gCancel = true; }
 
+JNIEXPORT jstring JNICALL Java_com_smitnk_flyagent_NativeLlm_loadBackends(JNIEnv* env, jclass, jstring dir) {
+    return env->NewStringUTF(flyllm::loadBackends(str(env, dir)).c_str());
+}
+JNIEXPORT jstring JNICALL Java_com_smitnk_flyagent_NativeLlm_stats(JNIEnv* env, jclass, jlong h) {
+    return env->NewStringUTF(flyllm::stats(reinterpret_cast<flyllm::Engine*>(h)).c_str());
+}
 JNIEXPORT jlong JNICALL Java_com_smitnk_flyagent_NativeLlm_load(JNIEnv* env, jclass, jstring path, jint nCtx, jint threads) {
     std::string err; auto* e = flyllm::load(str(env, path), nCtx, threads, err);
     if (!e) throwIo(env, err);

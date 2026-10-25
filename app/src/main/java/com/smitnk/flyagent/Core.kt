@@ -25,6 +25,8 @@ interface Store {
 interface Llm {
     val name: String
     fun chat(system: String, msgs: List<Pair<String, String>>, image: Img?): String
+    /** Speed of the last call, for the details log (local model only). */
+    val lastStats: String get() = ""
     /** Streams text as it is generated; onToken returning false stops early. Default: no streaming. */
     fun chatStream(system: String, msgs: List<Pair<String, String>>, maxTokens: Int, onToken: (String) -> Boolean): String =
         chat(system, msgs, null).also { onToken(it) }

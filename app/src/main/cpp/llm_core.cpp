@@ -1,6 +1,9 @@
 #include "llm_core.h"
 #include "llama.h"
+#include "ggml-backend.h"
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
 #include <mutex>
 
 namespace flyllm {
@@ -11,12 +14,33 @@ struct Engine {
     const llama_vocab* vocab = nullptr;
     int nCtx = 0;
     std::mutex mu;
+    std::string stats;
 };
+
+std::string loadBackends(const std::string& libDir) {
+    static std::string desc;
+    static std::once_flag once;
+    std::call_once(once, [&] {
+        if (!libDir.empty()) ggml_backend_load_all_from_path(libDir.c_str());
+        for (size_t i = 0; i < ggml_backend_reg_count(); i++) {
+            ggml_backend_reg_t reg = ggml_backend_reg_get(i);
+            desc += ggml_backend_reg_name(reg);
+            auto feats = (ggml_backend_get_features_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_get_features");
+            if (feats) for (auto* f = feats(reg); f && f->name; f++) { desc += " "; desc += f->name; }
+            desc += "; ";
+        }
+        if (desc.empty()) desc = "no backend loaded";
+    });
+    return desc;
+}
+
+std::string stats(Engine* e) { std::lock_guard<std::mutex> lock(e->mu); return e->stats; }
 
 static std::once_flag backendOnce;
 
 Engine* load(const std::string& path, int nCtx, int nThreads, std::string& err) {
     std::call_once(backendOnce, [] { llama_backend_init(); });
+    if (ggml_backend_dev_count() == 0) { err = "no CPU backend available (call loadBackends first)"; return nullptr; }
     auto mp = llama_model_default_params();
     mp.n_gpu_layers = 0;
     mp.use_mmap = true;  // weights paged from flash on demand: lower resident RAM
@@ -49,6 +73,8 @@ std::string chat(Engine* e, const std::vector<std::string>& roles, const std::ve
     if (budget < 64) { err = "context too small"; return ""; }
     if ((int)toks.size() > budget) toks.erase(toks.begin(), toks.end() - budget);  // keep the most recent part of the chat
 
+    using clk = std::chrono::steady_clock;
+    auto t0 = clk::now();
     llama_memory_clear(llama_get_memory(e->ctx), true);
     for (size_t i = 0; i < toks.size(); i += 512) {
         int cnt = (int)std::min<size_t>(512, toks.size() - i);
@@ -61,8 +87,10 @@ std::string chat(Engine* e, const std::vector<std::string>& roles, const std::ve
     llama_sampler_chain_add(smpl, llama_sampler_init_temp(0.7f));
     llama_sampler_chain_add(smpl, llama_sampler_init_dist(1234));
 
+    auto t1 = clk::now();
+    int generated = 0;
     std::string out; char piece[256];
-    for (int i = 0; i < maxTokens; i++) {
+    for (int i = 0; i < maxTokens; i++, generated++) {
         llama_token t = llama_sampler_sample(smpl, e->ctx, -1);
         if (llama_vocab_is_eog(e->vocab, t)) break;
         int len = llama_token_to_piece(e->vocab, t, piece, sizeof(piece), 0, false);
@@ -70,6 +98,11 @@ std::string chat(Engine* e, const std::vector<std::string>& roles, const std::ve
         if (llama_decode(e->ctx, llama_batch_get_one(&t, 1)) != 0) { err = "decode failed"; break; }
     }
     llama_sampler_free(smpl);
+    double pt = std::chrono::duration<double>(t1 - t0).count(), gt = std::chrono::duration<double>(clk::now() - t1).count();
+    char sbuf[160];
+    std::snprintf(sbuf, sizeof sbuf, "prompt %zu tok in %.1f s (%.0f tok/s), generated %d tok at %.1f tok/s",
+                  toks.size(), pt, toks.size() / std::max(pt, 1e-3), generated, generated / std::max(gt, 1e-3));
+    e->stats = sbuf;
     return out;
 }
 
