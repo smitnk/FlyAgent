@@ -91,9 +91,7 @@ class Agent(
             log("Thinking with on-device model…")
             model.chat(CHAT_SYSTEM, history.takeLast(6) + ("user" to task), null) to true
         } catch (e: Exception) { "On-device model error: ${e.message}" to false }
-        return ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local model). For full answers, add an API key (⋮ → Cloud APIs).
-
-" + SmallTalk.HELP) to false
+        return ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local model). For full answers, add an API key (⋮ → Cloud APIs).\n\n" + SmallTalk.HELP) to false
     }
 
     fun runSkill(skill: Skill, input: String, steps: MutableList<Pair<String, JSONObject>> = mutableListOf(), log: (String) -> Unit = {}): Pair<String, Boolean> {
