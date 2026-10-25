@@ -87,5 +87,7 @@ jobs:
           gh release upload connectome-v783 fly783_full.bin.gz fly783_full.bin.gz.sha256 --clobber
       - name: Check Android native code is optimized
         run: |
-          f=$(find app/.cxx -name build.ninja -path "*arm64-v8a*" | head -1)
-          grep -q -- "-O3" "$f" && ! grep -q -- " -O0 " "$f" && echo "::notice::arm64 native code built with -O3" || { echo "::error::native code not optimized"; exit 1; }
+          f=$(find app/.cxx -name compile_commands.json -path "*arm64-v8a*" | head -1)
+          cmd=$(python -c "import json,sys; c=[e['command'] for e in json.load(open('$f')) if e['file'].endswith('ggml-cpu.c')]; print(c[0] if c else '')")
+          echo "::notice::ggml-cpu.c flags: $(echo "$cmd" | grep -oE ' -O[0-3s]| -march=[^ ]+| -mcpu=[^ ]+' | tr '\n' ' ')"
+          echo "$cmd" | grep -q -- " -O3" && ! echo "$cmd" | grep -q -- " -O0" || { echo "::error::llama.cpp not optimized"; exit 1; }
