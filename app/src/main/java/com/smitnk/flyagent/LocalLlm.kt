@@ -9,11 +9,19 @@ import java.io.File
  */
 class LocalLlm private constructor(private val h: Long) : Llm {
     override val name = "Qwen3-0.6B (on device)"
-    override fun chat(system: String, msgs: List<Pair<String, String>>, image: Img?): String {
+    override fun chat(system: String, msgs: List<Pair<String, String>>, image: Img?) = chatStream(system, msgs, 384) { true }
+
+    override fun chatStream(system: String, msgs: List<Pair<String, String>>, maxTokens: Int, onToken: (String) -> Boolean): String {
         val roles = arrayOf("system") + msgs.map { it.first }
-        // "/no_think" is Qwen3's switch for direct answers without a long reasoning trace (faster on phones)
+        // "/no_think" is Qwen3's switch for direct answers without a long reasoning trace (much faster on phones)
         val texts = arrayOf(system) + msgs.mapIndexed { i, (_, t) -> if (i == msgs.lastIndex) "$t /no_think" else t }
-        return stripThink(NativeLlm.chat(h, roles, texts, 512))
+        val raw = StringBuilder()
+        val out = NativeLlm.chat(h, roles, texts, maxTokens) { b ->
+            raw.append(String(b, Charsets.UTF_8))
+            val visible = stripThink(raw.toString())
+            onToken(visible) // full visible text so far
+        }
+        return stripThink(String(out, Charsets.UTF_8))
     }
 
     companion object {

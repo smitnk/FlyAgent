@@ -18,7 +18,8 @@ object NativeBrain {
 object NativeLlm {
     init { System.loadLibrary("flyagent") }
     @JvmStatic external fun load(path: String, nCtx: Int, threads: Int): Long
-    @JvmStatic external fun chat(h: Long, roles: Array<String>, texts: Array<String>, maxTokens: Int): String
+    fun interface TokenListener { fun onToken(utf8: ByteArray): Boolean }
+    @JvmStatic external fun chat(h: Long, roles: Array<String>, texts: Array<String>, maxTokens: Int, listener: TokenListener?): ByteArray
     @JvmStatic external fun free(h: Long)
 }
 

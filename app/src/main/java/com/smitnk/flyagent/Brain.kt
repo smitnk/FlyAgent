@@ -60,7 +60,10 @@ object BrainLab {
             (if (sil.isNotEmpty()) ", silenced ${sil.size}" else "") + ".")
         if (r.missing.isNotEmpty()) appendLine("Not in this dataset: ${r.missing.joinToString()}")
         appendLine("${r.ratesHz.size} neurons fired, ${r.totalSpikes} spikes, computed in ${r.wallMs} ms on this phone.")
-        if (b.has(MN9)) appendLine("MN9 (feeding motor neuron): ${"%.1f".format(r.ratesHz[MN9] ?: 0.0)} Hz")
+        if (b.has(MN9)) {
+            appendLine("MN9 (feeding motor neuron): ${"%.1f".format(r.ratesHz[MN9] ?: 0.0)} Hz")
+            appendLine("About MN9: a motor neuron that drives proboscis extension (the fly's feeding movement). In Shiu et al. 2024, activating sugar-sensing neurons in this model made MN9 fire, matching real fly feeding behaviour.")
+        }
         appendLine("Most active downstream neurons (not stimulated):")
         r.ratesHz.filterKeys { it !in r.stimulated }.entries.sortedByDescending { it.value }.take(10).forEach { (id, hzv) ->
             appendLine("  $id${known[id]?.let { " ($it)" } ?: ""}: ${"%.1f".format(hzv)} Hz")

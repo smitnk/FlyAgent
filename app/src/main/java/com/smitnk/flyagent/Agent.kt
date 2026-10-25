@@ -15,8 +15,14 @@ class Agent(
     private val vision: ((ByteArray) -> String)? = null,
     private val localLlm: () -> Llm? = { null },
 ) {
-    /** history: earlier (role, text) turns of this chat, oldest first. */
-    fun run(task: String, image: Img?, mode: Mode, controller: Controller, log: (String) -> Unit, history: List<Pair<String, String>> = emptyList()): Result {
+    @Volatile private var stopped = false
+    /** Stop button: ends local generation at the next token and the cloud loop at the next step. */
+    fun stop() { stopped = true }
+
+    /** history: earlier (role, text) turns of this chat, oldest first. onToken streams the visible reply so far. */
+    fun run(task: String, image: Img?, mode: Mode, controller: Controller, log: (String) -> Unit, history: List<Pair<String, String>> = emptyList(),
+            onToken: (String) -> Boolean = { true }): Result {
+        stopped = false
         val steps = mutableListOf<Pair<String, JSONObject>>()
         fun finish(answer: String, ok: Boolean, cloud: Boolean): Result {
             val stepsJson = SkillTemplate.make(steps, SkillTemplate.inputOf(task))
@@ -48,7 +54,7 @@ class Agent(
             if (mode == Mode.CLOUD) return finish("All cloud providers failed.", false, true)
             log("Falling back to local mode")
         }
-        val (ans, ok) = local(task, image, skill, steps, log, history)
+        val (ans, ok) = local(task, image, skill, steps, log, history, onToken)
         return finish(ans, ok, false)
     }
 
@@ -70,6 +76,7 @@ class Agent(
         val hist = if (image != null) emptyList() else history.takeLast(10) // providers attach the image to the first message
         val msgs = (hist.map { it.first to Safety.redact(it.second) } + ("user" to Safety.redact(ctx))).toMutableList()
         repeat(MAX_STEPS) {
+            if (stopped) return "Stopped." to false
             val reply = llm.chat(SYSTEM, msgs, image)
             val action = ActionParser.parse(reply) ?: return reply to true
             action.answer?.let { return it to true }
@@ -80,20 +87,36 @@ class Agent(
         return "Stopped after $MAX_STEPS steps without a final answer." to false
     }
 
-    private fun local(task: String, image: Img?, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit, history: List<Pair<String, String>>): Pair<String, Boolean> {
+    private fun local(task: String, image: Img?, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit,
+                      history: List<Pair<String, String>>, onToken: (String) -> Boolean): Pair<String, Boolean> {
         LocalCommands.parse(task)?.let { (name, args) -> val out = exec(name, args, steps, log); return out to !out.startsWith("ERROR") }
         if (skill != null) return runSkill(skill, SkillTemplate.inputOf(task), steps, log)
         val v = vision
         val seen = if (image != null && v != null) runCatching { v(image.bytes) }.getOrElse { return "Image reading failed: ${it.message}" to false } else null
-        val model = runCatching { localLlm() }.onFailure { log("Local model failed to load: ${it.message}") }.getOrNull()
-        if (seen != null && model == null) return seen to true
         if (seen == null) SmallTalk.reply(task)?.let { return it to true }
-        if (model != null) return try {
-            log("Thinking with ${model.name}…")
-            // same tool-using loop as the cloud, run by the on-device model
-            reason(model, if (seen != null) "$task\n\n$seen" else task, null, emptyList(), skill, steps, log, history.takeLast(6))
-        } catch (e: Exception) { "On-device model error: ${e.message}" to false }
-        return ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local LLM). For full answers, add an API key (⋮ → Cloud APIs).\n\n" + SmallTalk.HELP) to false
+        // A 0.6B model can't reliably drive a JSON tool loop, so the app runs the needed tool itself
+        // and asks the model one short question grounded in the real output.
+        val toolOut = BrainIntent.args(task)?.let { exec("brain_sim", it, steps, log) }
+        val model = runCatching { localLlm() }.onFailure { log("Local model failed to load: ${it.message}") }.getOrNull()
+        if (model == null) return when {
+            toolOut != null -> toolOut to !toolOut.startsWith("ERROR")
+            seen != null -> seen to true
+            else -> ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local LLM). For full answers, add an API key (⋮ → Cloud APIs).\n\n" + SmallTalk.HELP) to false
+        }
+        val grounded = toolOut != null || seen != null
+        val prompt = buildString {
+            toolOut?.let { append("Output of the fly-brain simulation that was just run on this phone:\n$it\n\n") }
+            seen?.let { append("What the phone's image reader found:\n$it\n\n") }
+            append(if (grounded) "Using only the information above (do not invent numbers), answer: $task" else task)
+        }
+        // grounded questions get no chat history, so earlier turns can't leak into the answer
+        val msgs = (if (grounded) emptyList() else history.takeLast(4)) + ("user" to prompt)
+        log("Thinking with ${model.name}…")
+        return try {
+            val ans = model.chatStream(LOCAL_SYSTEM, msgs, 384) { onToken(it) && !stopped }
+            val text = ans.ifBlank { "(no answer)" } + if (stopped) " …(stopped)" else ""
+            (if (toolOut != null) "$text\n\n— Simulation output —\n$toolOut" else text) to true
+        } catch (e: Exception) { (toolOut ?: "On-device model error: ${e.message}") to (toolOut != null) }
     }
 
     fun runSkill(skill: Skill, input: String, steps: MutableList<Pair<String, JSONObject>> = mutableListOf(), log: (String) -> Unit = {}): Pair<String, Boolean> {
@@ -127,6 +150,7 @@ class Agent(
 
     companion object {
         const val MAX_STEPS = 8
+        const val LOCAL_SYSTEM = "You are FlyAgent, a helpful assistant running offline on the user's phone. Answer briefly, clearly and accurately. When information is given, use only that information. Never help with illegal or harmful activity."
         val SYSTEM = """
 You are FlyAgent, an assistant on the user's Android phone. Work step by step using tools.
 Reply with ONLY one JSON object per turn:

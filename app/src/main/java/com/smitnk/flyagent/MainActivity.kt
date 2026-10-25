@@ -60,7 +60,7 @@ class MainActivity : Activity() {
         }
         send = ImageButton(this).apply {
             setImageResource(android.R.drawable.ic_menu_send); background = round("#D97757", 22f); setColorFilter(Color.WHITE); contentDescription = "Send"
-            setOnClickListener { submit() }
+            setOnClickListener { if (busy) stopRun() else submit() }
         }
         val bar = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL; setPadding(px(8), px(6), px(8), px(10))
@@ -98,7 +98,15 @@ class MainActivity : Activity() {
         val hist = history.toList()
         val log = StringBuilder()
         Thread {
-            val r = agent.run(task, img, settings.mode, settings.controller, { line -> log.appendLine(line); runOnUiThread { details.text = log.toString().trim() } }, hist)
+            var lastPost = 0L
+            val r = agent.run(task, img, settings.mode, settings.controller, { line -> log.appendLine(line); runOnUiThread { details.text = log.toString().trim() } }, hist) { partial ->
+                val now = System.currentTimeMillis()
+                if (now - lastPost > 80 && partial.isNotBlank()) { // throttle UI updates while streaming
+                    lastPost = now
+                    runOnUiThread { reply.text = partial; reply.setTextColor(fg); scrollDown() }
+                }
+                true
+            }
             runOnUiThread {
                 history += "user" to task; history += "assistant" to r.answer
                 reply.text = r.answer; reply.setTextColor(fg)
@@ -108,7 +116,18 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    private fun setBusy(b: Boolean) { send.isEnabled = !b; send.alpha = if (b) 0.4f else 1f }
+    @Volatile private var busy = false
+    /** While working, the send button becomes a Stop button. */
+    private fun setBusy(b: Boolean) {
+        busy = b
+        send.setImageResource(if (b) android.R.drawable.ic_media_pause else android.R.drawable.ic_menu_send)
+        send.contentDescription = if (b) "Stop" else "Send"
+    }
+    private fun stopRun() {
+        agent.stop()
+        runCatching { NativeBrain.cancel() } // also ends a running brain simulation
+        toast("Stopping…")
+    }
 
     /** Adds a message bubble; returns its column (assistant) so we can append actions. */
     private fun bubble(user: Boolean, text: String, episode: Long = -1): LinearLayout {

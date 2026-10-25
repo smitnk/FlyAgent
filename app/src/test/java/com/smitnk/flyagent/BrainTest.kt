@@ -57,3 +57,33 @@ class BrainTest {
 
     @Test fun stripsQwenThinking() = assertEquals("Paris.", LocalLlm.stripThink("<think>\nhmm\n</think>\n\nParis."))
 }
+
+class LocalGroundingTest {
+    @Test fun detectsNaturalLanguageBrainRequests() {
+        assertEquals(100.0, BrainIntent.args("Run brain sugar 100 and explain MN9 using the actual results")!!.getDouble("hz"), 0.0)
+        assertEquals("sugar", BrainIntent.args("Run the sugar brain experiment and explain what MN9 means.")!!.getString("stimulate"))
+        assertFalse(BrainIntent.args("run the sugar brain experiment")!!.has("hz"))
+        assertEquals("info", BrainIntent.args("how many neurons are in the connectome?")!!.getString("action"))
+        assertNull(BrainIntent.args("what is 4+4"))
+        assertNull(BrainIntent.args("brainstorm video ideas"))
+    }
+
+    @Test fun localModelGetsRealSimulationResultsAndNoStaleHistory() {
+        val brain = FakeBrain(); val store = FakeStore()
+        val tools = Tools(java.io.File(System.getProperty("java.io.tmpdir"), "fa-test2"), store) { brain }
+        val local = FakeLlm("qwen", mutableListOf("MN9 fired at 12.5 Hz, so sugar drives feeding."))
+        val r = Agent(store, tools::run, { emptyList() }, null, { local })
+            .run("Run brain sugar 100 and explain MN9 using the actual results", null, Mode.OFFLINE, ConventionalController, {},
+                listOf("user" to "What is 4+4", "assistant" to "8"))
+        assertEquals(1, brain.calls.size)                              // app ran the simulator itself
+        assertEquals(1, local.lastMsgs.size)                           // old "4+4 = 8" turn not sent
+        assertTrue(local.lastMsgs.single().second.contains("MN9 (feeding motor neuron): 12.5 Hz"))
+        assertTrue(r.answer.startsWith("MN9 fired at 12.5 Hz")); assertTrue(r.answer.contains("— Simulation output —"))
+    }
+
+    @Test fun stopEndsStreamingEarly() {
+        val agent = Agent(FakeStore(), FakeTools()::run, { emptyList() }, null, { FakeLlm("qwen", mutableListOf("long answer")) })
+        val r = agent.run("tell me a story", null, Mode.OFFLINE, ConventionalController, {}) { agent.stop(); false }
+        assertTrue(r.answer.endsWith("(stopped)"))
+    }
+}

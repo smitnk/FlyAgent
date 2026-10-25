@@ -25,6 +25,9 @@ interface Store {
 interface Llm {
     val name: String
     fun chat(system: String, msgs: List<Pair<String, String>>, image: Img?): String
+    /** Streams text as it is generated; onToken returning false stops early. Default: no streaming. */
+    fun chatStream(system: String, msgs: List<Pair<String, String>>, maxTokens: Int, onToken: (String) -> Boolean): String =
+        chat(system, msgs, null).also { onToken(it) }
 }
 
 object Recall {
@@ -91,6 +94,22 @@ object LocalCommands {
         return a
     }
     const val HELP = "Offline commands:\nsearch <query>\nfetch <url>\nwrite <name.txt>: <content>\nread <name>\nfiles\nrecall <words>\nbrain | brain sugar [hz] | brain stim <flywire ids> [hz] | brain silence <id>\n(attach an image to read its text offline)"
+}
+
+/** Natural-language requests for the fly-brain simulator, e.g. "run the sugar brain experiment and explain MN9". */
+object BrainIntent {
+    fun args(task: String): JSONObject? {
+        val t = task.lowercase()
+        val brainWord = Regex("\\b(brain|connectome|mn9|neurons?)\\b").containsMatchIn(t)
+        if (!brainWord) return null
+        val hz = Regex("\\b(\\d{1,3})\\s*(hz)?\\b").findAll(t).map { it.groupValues[1].toDouble() }.firstOrNull { it in 1.0..400.0 }
+        return when {
+            "sugar" in t || Regex("\\b(run|simulat\\w*|experiment|stimulat\\w*|test)\\b").containsMatchIn(t) ->
+                JSONObject().put("stimulate", "sugar").also { a -> hz?.let { a.put("hz", it) } }
+            Regex("\\b(info|how many|size|loaded|dataset)\\b").containsMatchIn(t) -> JSONObject().put("action", "info")
+            else -> null
+        }
+    }
 }
 
 /** Skill steps are a JSON array of {tool,args}; string args equal to the original input become {input}. */

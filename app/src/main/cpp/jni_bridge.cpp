@@ -51,15 +51,42 @@ JNIEXPORT jlong JNICALL Java_com_smitnk_flyagent_NativeLlm_load(JNIEnv* env, jcl
     if (!e) throwIo(env, err);
     return reinterpret_cast<jlong>(e);
 }
-JNIEXPORT jstring JNICALL Java_com_smitnk_flyagent_NativeLlm_chat(JNIEnv* env, jclass, jlong h, jobjectArray roles, jobjectArray texts, jint maxTokens) {
+// Length of the longest prefix of s that ends on a complete UTF-8 character (tokens can split multi-byte chars).
+static size_t completeUtf8(const std::string& s) {
+    size_t n = s.size(), i = n;
+    while (i > 0 && n - i < 3 && ((unsigned char)s[i - 1] & 0xC0) == 0x80) i--;   // skip up to 3 continuation bytes
+    if (i == 0) return n;
+    unsigned char lead = (unsigned char)s[i - 1];
+    size_t need = lead >= 0xF0 ? 4 : lead >= 0xE0 ? 3 : lead >= 0xC0 ? 2 : 1;
+    return (n - (i - 1) >= need) ? n : i - 1;
+}
+static jbyteArray bytes(JNIEnv* env, const std::string& s) {
+    jbyteArray a = env->NewByteArray(s.size()); env->SetByteArrayRegion(a, 0, s.size(), (const jbyte*)s.data()); return a;
+}
+
+// Text crosses JNI as UTF-8 bytes (NewStringUTF rejects emoji). listener.onToken(byte[]) returning false stops generation.
+JNIEXPORT jbyteArray JNICALL Java_com_smitnk_flyagent_NativeLlm_chat(JNIEnv* env, jclass, jlong h, jobjectArray roles, jobjectArray texts, jint maxTokens, jobject listener) {
     std::vector<std::string> r, t;
     for (jsize i = 0; i < env->GetArrayLength(roles); i++) {
         r.push_back(str(env, (jstring)env->GetObjectArrayElement(roles, i)));
         t.push_back(str(env, (jstring)env->GetObjectArrayElement(texts, i)));
     }
-    std::string err; auto out = flyllm::chat(reinterpret_cast<flyllm::Engine*>(h), r, t, maxTokens, nullptr, err);
+    jmethodID onToken = listener ? env->GetMethodID(env->GetObjectClass(listener), "onToken", "([B)Z") : nullptr;
+    std::string pending;
+    auto cb = [&](const std::string& piece) -> bool {
+        if (!onToken) return true;
+        pending += piece;
+        size_t k = completeUtf8(pending);
+        if (k == 0) return true;
+        jbyteArray a = bytes(env, pending.substr(0, k)); pending.erase(0, k);
+        jboolean go = env->CallBooleanMethod(listener, onToken, a);
+        env->DeleteLocalRef(a);
+        return go && !env->ExceptionCheck();
+    };
+    std::string err; auto out = flyllm::chat(reinterpret_cast<flyllm::Engine*>(h), r, t, maxTokens, cb, err);
+    if (env->ExceptionCheck()) return nullptr;
     if (!err.empty() && out.empty()) { throwIo(env, err); return nullptr; }
-    return env->NewStringUTF(out.c_str());
+    return bytes(env, out);
 }
 JNIEXPORT void JNICALL Java_com_smitnk_flyagent_NativeLlm_free(JNIEnv*, jclass, jlong h) { flyllm::release(reinterpret_cast<flyllm::Engine*>(h)); }
 }
