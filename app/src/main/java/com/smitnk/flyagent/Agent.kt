@@ -13,8 +13,10 @@ class Agent(
     private val tool: (String, JSONObject) -> String,
     private val llms: () -> List<Llm>,
     private val vision: ((ByteArray) -> String)? = null,
+    private val localLlm: () -> Llm? = { null },
 ) {
-    fun run(task: String, image: Img?, mode: Mode, controller: Controller, log: (String) -> Unit): Result {
+    /** history: earlier (role, text) turns of this chat, oldest first. */
+    fun run(task: String, image: Img?, mode: Mode, controller: Controller, log: (String) -> Unit, history: List<Pair<String, String>> = emptyList()): Result {
         val steps = mutableListOf<Pair<String, JSONObject>>()
         fun finish(answer: String, ok: Boolean, cloud: Boolean): Result {
             val stepsJson = SkillTemplate.make(steps, SkillTemplate.inputOf(task))
@@ -26,7 +28,7 @@ class Agent(
         if (!verdict.ok) { log("⛔ ${verdict.reason}"); return finish(verdict.reason, false, false) }
 
         val route = controller.route(task, image != null)
-        log("Controller ${controller.name}: ${route.note}")
+        log("Router ${controller.name}: ${route.note}" + if (mode != Mode.HYBRID) " (mode $mode decides)" else "")
         val past = if (route.recall) store.recall(task) else emptyList()
         if (past.isNotEmpty()) log("Recalled ${past.size} memories: " + past.joinToString { "#${it.id}" })
         val skill = Recall.bestSkill(task, store.skills())
@@ -39,14 +41,14 @@ class Agent(
             for (llm in providers) {
                 try {
                     log("Reasoning with ${llm.name}…")
-                    val (ans, ok) = cloud(llm, task, image, past, skill, steps, log)
+                    val (ans, ok) = cloud(llm, task, image, past, skill, steps, log, history)
                     return finish(ans, ok, true)
                 } catch (e: Exception) { log("${llm.name} failed: ${e.message?.take(200)}") }
             }
             if (mode == Mode.CLOUD) return finish("All cloud providers failed.", false, true)
             log("Falling back to local mode")
         }
-        val (ans, ok) = local(task, image, skill, steps, log)
+        val (ans, ok) = local(task, image, skill, steps, log, history)
         return finish(ans, ok, false)
     }
 
@@ -57,7 +59,7 @@ class Agent(
         log(out.take(400)); return out
     }
 
-    private fun cloud(llm: Llm, task: String, image: Img?, past: List<Episode>, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit): Pair<String, Boolean> {
+    private fun cloud(llm: Llm, task: String, image: Img?, past: List<Episode>, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit, history: List<Pair<String, String>>): Pair<String, Boolean> {
         val ctx = buildString {
             val facts = store.facts().take(10)
             if (facts.isNotEmpty()) append("User corrections/preferences:\n" + facts.joinToString("\n") { "- $it" } + "\n\n")
@@ -65,7 +67,8 @@ class Agent(
             if (skill != null) append("A tested procedure you learned before for this kind of task (adapt it):\n${skill.steps}\n\n")
             append("Task: $task")
         }
-        val msgs = mutableListOf("user" to Safety.redact(ctx))
+        val hist = if (image != null) emptyList() else history.takeLast(10) // providers attach the image to the first message
+        val msgs = (hist.map { it.first to Safety.redact(it.second) } + ("user" to Safety.redact(ctx))).toMutableList()
         repeat(MAX_STEPS) {
             val reply = llm.chat(SYSTEM, msgs, image)
             val action = ActionParser.parse(reply) ?: return reply to true
@@ -77,12 +80,20 @@ class Agent(
         return "Stopped after $MAX_STEPS steps without a final answer." to false
     }
 
-    private fun local(task: String, image: Img?, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit): Pair<String, Boolean> {
+    private fun local(task: String, image: Img?, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit, history: List<Pair<String, String>>): Pair<String, Boolean> {
         LocalCommands.parse(task)?.let { (name, args) -> val out = exec(name, args, steps, log); return out to !out.startsWith("ERROR") }
         if (skill != null) return runSkill(skill, SkillTemplate.inputOf(task), steps, log)
         val v = vision
         if (image != null && v != null) return runCatching { v(image.bytes) to true }.getOrElse { "Image reading failed: ${it.message}" to false }
-        return ("I can't do that offline. " + LocalCommands.HELP) to false
+        SmallTalk.reply(task)?.let { return it to true }
+        val model = runCatching { localLlm() }.onFailure { log("Local model failed to load: ${it.message}") }.getOrNull()
+        if (model != null) return try {
+            log("Thinking with on-device model…")
+            model.chat(CHAT_SYSTEM, history.takeLast(6) + ("user" to task), null) to true
+        } catch (e: Exception) { "On-device model error: ${e.message}" to false }
+        return ("I can only give basic replies offline right now. To chat about anything offline, load a local model (⋮ → Local model). For full answers, add an API key (⋮ → Cloud APIs).
+
+" + SmallTalk.HELP) to false
     }
 
     fun runSkill(skill: Skill, input: String, steps: MutableList<Pair<String, JSONObject>> = mutableListOf(), log: (String) -> Unit = {}): Pair<String, Boolean> {
@@ -116,6 +127,7 @@ class Agent(
 
     companion object {
         const val MAX_STEPS = 8
+        const val CHAT_SYSTEM = "You are FlyAgent, a friendly, concise assistant running offline on the user's phone. Answer helpfully and honestly; say when you are not sure. Never help with illegal or harmful activity or with obtaining private data."
         val SYSTEM = """
 You are FlyAgent, an assistant on the user's Android phone. Work step by step using tools.
 Reply with ONLY one JSON object per turn:
@@ -126,6 +138,7 @@ Reply with ONLY one JSON object per turn:
 {"tool":"list_files","args":{}}
 {"tool":"recall","args":{"query":"..."}}
 {"final":"your answer, citing source URLs you actually found"}
+For greetings or normal conversation, reply directly with {"final":"..."} — use tools only when needed.
 If an image is attached, describe/read it directly.
 """.trimIndent() + "\n" + Safety.PROMPT_RULES
     }
