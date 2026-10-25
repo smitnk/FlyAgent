@@ -80,7 +80,8 @@ class Agent(
     private fun local(task: String, image: Img?, skill: Skill?, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit): Pair<String, Boolean> {
         LocalCommands.parse(task)?.let { (name, args) -> val out = exec(name, args, steps, log); return out to !out.startsWith("ERROR") }
         if (skill != null) return runSkill(skill, SkillTemplate.inputOf(task), steps, log)
-        if (image != null && vision != null) return runCatching { vision.invoke(image.bytes) to true }.getOrElse { "Image reading failed: ${it.message}" to false }
+        val v = vision
+        if (image != null && v != null) return runCatching { v(image.bytes) to true }.getOrElse { "Image reading failed: ${it.message}" to false }
         return ("I can't do that offline. " + LocalCommands.HELP) to false
     }
 

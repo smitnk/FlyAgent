@@ -128,7 +128,8 @@ class MainActivity : Activity() {
             val model = EditText(this).apply { hint = "Model"; setText(settings.model(p)) }
             listOf(on, key, url, model).forEach(box::addView)
             box.addView(TextView(this).apply { text = " " })
-            { settings.save(p.id, on.isChecked, key.text.toString().trim(), url.text.toString().trim(), model.text.toString().trim()) }
+            val save: () -> Unit = { settings.save(p.id, on.isChecked, key.text.toString().trim(), url.text.toString().trim(), model.text.toString().trim()) }
+            save
         }
         AlertDialog.Builder(this).setTitle("Cloud APIs (tried top to bottom)").setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Save") { _, _ -> savers.forEach { it() }; toast("Saved. On: " + settings.llms().joinToString { it.name }.ifEmpty { "none" }) }
