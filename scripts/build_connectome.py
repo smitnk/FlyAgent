@@ -40,7 +40,8 @@ def write(path, sel_ids, p, q, ww, source):
         f.write(b"FLYC"); f.write(struct.pack("<IIQI", 1, n, len(q), len(src))); f.write(src)
         f.write(np.asarray(sel_ids, np.int64).tobytes()); f.write(rowptr.tobytes())
         f.write(q.astype(np.uint32).tobytes()); f.write(ww.astype(np.float32).tobytes())
-    print(f"wrote {path}: {n} neurons, {len(q)} edges, {os.path.getsize(path)/1e6:.1f} MB")
+    import hashlib
+    print(f"wrote {path}: {n} neurons, {len(q)} edges, {os.path.getsize(path)/1e6:.1f} MB, sha256 {hashlib.sha256(open(path,'rb').read()).hexdigest()[:16]}")
 
 CITE = "FlyWire Consortium, connectome v783 (Dorkenwald et al. 2024; Schlegel et al. 2024), CC BY 4.0, doi:10.5281/zenodo.10676866; export by Shiu et al. 2024 (MIT)"
 write(f"{OUT}/fly783_full.bin", ids, pre, post, w, f"FULL brain | {CITE}")
@@ -57,9 +58,10 @@ frontier = set(sel)
 for hop in range(3):
     m = np.isin(pre, list(frontier)) & (np.abs(w) >= 5)
     new = set(post[m].tolist()) - sel
-    if len(sel) + len(new) > 6000:  # keep the bundled asset small: strongest targets first
-        s = pd.Series(np.abs(w[m]), index=post[m]).groupby(level=0).sum().drop(list(sel), errors="ignore")
-        new = set(s.sort_index().sort_values(ascending=False, kind="stable").index[: 6000 - len(sel)].tolist())  # stable: same subset every build
+    if len(sel) + len(new) > 6000:  # keep the bundled asset small: strongest targets first, ties broken by index
+        score = np.bincount(post[m], weights=np.abs(w[m]).astype(np.float64), minlength=len(ids))
+        cand = np.array(sorted(new))
+        new = set(cand[np.lexsort((cand, -score[cand]))][: 6000 - len(sel)].tolist())
     print(f"hop {hop+1}: +{len(new)}"); sel |= new; frontier = new
     if not new: break
 sel.add(idx[MN9]); print("MN9 reached by pathway expansion:", idx[MN9] in sel)
