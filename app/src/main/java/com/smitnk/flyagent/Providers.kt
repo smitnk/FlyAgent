@@ -72,6 +72,16 @@ class Settings(ctx: Context) {
     var mode: Mode get() = Mode.valueOf(p.getString("mode", "HYBRID")!!); set(v) = p.edit().putString("mode", v.name).apply()
     val controller: Controller get() = ConventionalController
 
+    // Specialist Dots: presets + user-made ones
+    fun dots(): List<Dot> = Dot.PRESETS + (p.getString("dots", "[]")!!.let { org.json.JSONArray(it) }.let { a -> (0 until a.length()).map { Dot.from(a.getJSONObject(it)) } })
+    fun saveCustomDots(list: List<Dot>) = p.edit().putString("dots", org.json.JSONArray(list.map { it.json() }).toString()).apply()
+    var dotId: String get() = p.getString("dot", Dot.DEFAULT.id)!!; set(v) = p.edit().putString("dot", v).apply()
+    val dot: Dot get() = dots().firstOrNull { it.id == dotId } ?: Dot.DEFAULT
+
+    // MCP connectors (tokens stay in app-private prefs)
+    fun connectors(): List<Connector> = org.json.JSONArray(p.getString("connectors", "[]")).let { a -> (0 until a.length()).map { Connector.from(a.getJSONObject(it)) } }
+    fun saveConnectors(list: List<Connector>) = p.edit().putString("connectors", org.json.JSONArray(list.map { it.json() }).toString()).apply()
+
     /** Enabled providers in priority order; the agent fails over down the list. */
     fun llms(): List<Llm> = providers.filter { enabled(it.id) && (key(it.id).isNotBlank() || url(it).contains("localhost")) }.map {
         if (it.id == "claude") ClaudeLlm(key(it.id), model(it)) else OpenAiLlm(it.label, url(it), key(it.id), model(it))

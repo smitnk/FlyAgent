@@ -9,7 +9,8 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 
 /** Tool executor + safety controller: file access is confined to the app workspace. */
-class Tools(val workspace: File, private val memory: Store, private val brain: () -> BrainEngine? = { null }) {
+class Tools(val workspace: File, private val memory: Store, private val brain: () -> BrainEngine? = { null },
+            private val mcp: (server: String, tool: String, args: JSONObject) -> String = { _, _, _ -> "ERROR: no connectors" }) {
     init { workspace.mkdirs() }
 
     fun run(name: String, args: JSONObject): String = try {
@@ -22,6 +23,8 @@ class Tools(val workspace: File, private val memory: Store, private val brain: (
             "list_files" -> workspace.listFiles()?.joinToString("\n") { "${it.name} (${it.length()} B)" }.orEmpty().ifEmpty { "(empty)" }
             "recall" -> memory.recall(args.getString("query"), 5).joinToString("\n") { "#${it.id} ${it.task} -> ${it.outcome.take(200)}" }.ifEmpty { "(no matching memories)" }
             "brain_sim" -> BrainLab.run(brain(), args)
+            "save_page" -> "Saved page #${memory.savePage(args.getString("title").take(200), args.getString("content"))} \"${args.getString("title")}\" to Spaces."
+            "mcp" -> mcp(args.getString("server"), args.getString("name"), args.optJSONObject("arguments") ?: JSONObject())
             else -> "ERROR: unknown tool $name"
         }
     } catch (e: Exception) { "ERROR: ${e.javaClass.simpleName}: ${e.message}" }

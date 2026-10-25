@@ -16,6 +16,10 @@ class FakeStore : Store {
         return Skill(skillList.size + 1L, name, trigger, steps, v + 1, status).also { skillList += it }
     }
     override fun skills() = skillList.groupBy { it.name }.map { (_, l) -> l.maxBy { it.version } }
+    val pageList = mutableListOf<Page>()
+    override fun savePage(title: String, body: String, id: Long): Long { val n = pageList.size + 1L; pageList += Page(n, 0, title, body); return n }
+    override fun pages() = pageList.toList()
+    override fun deletePage(id: Long) { pageList.removeAll { it.id == id } }
 }
 
 class FakeLlm(override val name: String = "fake", private val replies: MutableList<String> = mutableListOf(), private val fail: Boolean = false) : Llm {

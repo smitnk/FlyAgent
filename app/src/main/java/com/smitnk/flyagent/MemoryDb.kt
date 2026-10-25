@@ -7,15 +7,44 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 /** On-device persistent memory: episodes (episodic), facts/feedback (semantic), skills (procedural, versioned). */
-class MemoryDb(ctx: Context) : SQLiteOpenHelper(ctx, "flyagent.db", null, 2), Store {
+class MemoryDb(ctx: Context) : SQLiteOpenHelper(ctx, "flyagent.db", null, 3), Store {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL("CREATE TABLE episodes(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, task TEXT, steps TEXT, outcome TEXT, success INTEGER, controller TEXT DEFAULT '')")
         db.execSQL("CREATE TABLE facts(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, content TEXT, source TEXT, confidence REAL)")
-        createSkills(db)
+        createSkills(db); createPages(db)
     }
     override fun onUpgrade(db: SQLiteDatabase, o: Int, n: Int) {
         if (o < 2) { db.execSQL("ALTER TABLE episodes ADD COLUMN controller TEXT DEFAULT ''"); createSkills(db) }
+        if (o < 3) createPages(db)
     }
+    private fun createPages(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE pages(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, title TEXT, body TEXT)")
+        db.execSQL("CREATE TABLE chats(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, title TEXT, dot TEXT)")
+        db.execSQL("CREATE TABLE messages(id INTEGER PRIMARY KEY AUTOINCREMENT, chat INTEGER, role TEXT, text TEXT, episode INTEGER, cloud INTEGER)")
+    }
+
+    override fun savePage(title: String, body: String, id: Long): Long {
+        val v = ContentValues().apply { put("ts", System.currentTimeMillis()); put("title", title); put("body", body) }
+        return if (id > 0) { writableDatabase.update("pages", v, "id=?", arrayOf(id.toString())); id } else writableDatabase.insert("pages", null, v)
+    }
+    override fun pages() = readableDatabase.rawQuery("SELECT id,ts,title,body FROM pages ORDER BY ts DESC", null).use { c ->
+        buildList { while (c.moveToNext()) add(Page(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3))) } }
+    override fun deletePage(id: Long) { writableDatabase.delete("pages", "id=?", arrayOf(id.toString())) }
+
+    // chat history (conversation list in the drawer)
+    data class Chat(val id: Long, val ts: Long, val title: String, val dot: String)
+    data class Msg(val role: String, val text: String, val episode: Long, val cloud: Boolean)
+    fun newChat(title: String, dot: String) = writableDatabase.insert("chats", null, ContentValues().apply {
+        put("ts", System.currentTimeMillis()); put("title", title.take(60)); put("dot", dot) })
+    fun chats() = readableDatabase.rawQuery("SELECT id,ts,title,dot FROM chats ORDER BY ts DESC LIMIT 100", null).use { c ->
+        buildList { while (c.moveToNext()) add(Chat(c.getLong(0), c.getLong(1), c.getString(2), c.getString(3))) } }
+    fun deleteChat(id: Long) { writableDatabase.delete("messages", "chat=?", arrayOf(id.toString())); writableDatabase.delete("chats", "id=?", arrayOf(id.toString())) }
+    fun addMessage(chat: Long, role: String, text: String, episode: Long = -1, cloud: Boolean = false) {
+        writableDatabase.insert("messages", null, ContentValues().apply { put("chat", chat); put("role", role); put("text", text); put("episode", episode); put("cloud", if (cloud) 1 else 0) })
+        writableDatabase.execSQL("UPDATE chats SET ts=? WHERE id=?", arrayOf<Any>(System.currentTimeMillis(), chat))
+    }
+    fun messages(chat: Long) = readableDatabase.rawQuery("SELECT role,text,episode,cloud FROM messages WHERE chat=? ORDER BY id", arrayOf(chat.toString())).use { c ->
+        buildList { while (c.moveToNext()) add(Msg(c.getString(0), c.getString(1), c.getLong(2), c.getInt(3) == 1)) } }
     private fun createSkills(db: SQLiteDatabase) =
         db.execSQL("CREATE TABLE skills(id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER, name TEXT, trigger TEXT, steps TEXT, version INTEGER, status TEXT)")
 

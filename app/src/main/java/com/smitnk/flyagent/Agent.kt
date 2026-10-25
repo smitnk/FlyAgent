@@ -14,15 +14,19 @@ class Agent(
     private val llms: () -> List<Llm>,
     private val vision: ((ByteArray) -> String)? = null,
     private val localLlm: () -> Llm? = { null },
+    private val mcpTools: () -> List<McpTool> = { emptyList() },
+    /** Human-in-the-loop: shows an Approve/Decline card and blocks until the user answers. */
+    private val approve: (title: String, detail: String) -> Boolean = { _, _ -> false },
 ) {
+    private var dot = Dot.DEFAULT
     @Volatile private var stopped = false
     /** Stop button: ends local generation at the next token and the cloud loop at the next step. */
     fun stop() { stopped = true }
 
     /** history: earlier (role, text) turns of this chat, oldest first. onToken streams the visible reply so far. */
     fun run(task: String, image: Img?, mode: Mode, controller: Controller, log: (String) -> Unit, history: List<Pair<String, String>> = emptyList(),
-            onToken: (String) -> Boolean = { true }): Result {
-        stopped = false
+            dot: Dot = Dot.DEFAULT, onToken: (String) -> Boolean = { true }): Result {
+        stopped = false; this.dot = dot
         val steps = mutableListOf<Pair<String, JSONObject>>()
         fun finish(answer: String, ok: Boolean, cloud: Boolean): Result {
             val stepsJson = SkillTemplate.make(steps, SkillTemplate.inputOf(task))
@@ -60,6 +64,11 @@ class Agent(
 
     private fun exec(name: String, args: JSONObject, steps: MutableList<Pair<String, JSONObject>>, log: (String) -> Unit): String {
         log("→ $name $args")
+        if (!dot.allows(name)) return "ERROR: ${dot.name} is not allowed to use $name".also(log)
+        approvalNeeded(name, args)?.let { (title, detail) ->
+            if (!approve(title, detail)) { log("✋ Declined by user"); return "The user declined this action. Do not retry it; continue without it." }
+            log("✓ Approved by user")
+        }
         val out = tool(name, args)
         if (!out.startsWith("ERROR")) steps += name to args
         log(out.take(400)); return out
@@ -77,7 +86,7 @@ class Agent(
         val msgs = (hist.map { it.first to Safety.redact(it.second) } + ("user" to Safety.redact(ctx))).toMutableList()
         repeat(MAX_STEPS) {
             if (stopped) return "Stopped." to false
-            val reply = llm.chat(SYSTEM, msgs, image)
+            val reply = llm.chat(Prompts.system(dot, if (dot.allows("mcp")) runCatching(mcpTools).getOrDefault(emptyList()) else emptyList()), msgs, image)
             val action = ActionParser.parse(reply) ?: return reply to true
             action.answer?.let { return it to true }
             val obs = exec(action.tool!!, action.args, steps, log)
@@ -117,11 +126,22 @@ class Agent(
         val msgs = listOf("user" to prompt)
         log("Thinking with ${model.name}…")
         return try {
-            val ans = model.chatStream(LOCAL_SYSTEM, msgs, 200) { onToken(it) && !stopped }
+            val sys = if (dot.instructions.isBlank()) LOCAL_SYSTEM else "$LOCAL_SYSTEM Your role: ${dot.instructions}"
+            val ans = model.chatStream(sys, msgs, 200) { onToken(it) && !stopped }
             model.lastStats.takeIf { it.isNotBlank() }?.let { log("Speed: $it") }
             val text = ans.ifBlank { "(no answer)" } + if (stopped) " …(stopped)" else ""
             (if (toolOut != null) "$text\n\n— ${if (toolOut.startsWith(BrainLab.TAG)) "Simulation output" else "Sources"} —\n$toolOut" else text) to true
         } catch (e: Exception) { (toolOut ?: "On-device model error: ${e.message}") to (toolOut != null) }
+    }
+
+    /** Actions that change things outside the chat need explicit approval (OpenDots "Approve & save" / "Approve & run"). */
+    private fun approvalNeeded(name: String, args: JSONObject): Pair<String, String>? = when (name) {
+        "save_page" -> "Save page \"${args.optString("title").take(80)}\"?" to args.optString("content").take(1500)
+        "mcp" -> {
+            val t = runCatching(mcpTools).getOrDefault(emptyList()).firstOrNull { it.server == args.optString("server") && it.name == args.optString("name") }
+            if (t?.readOnly == true) null else "Run ${args.optString("server")}/${args.optString("name")}?" to (args.optJSONObject("arguments")?.toString(2) ?: "{}")
+        }
+        else -> null
     }
 
     fun runSkill(skill: Skill, input: String, steps: MutableList<Pair<String, JSONObject>> = mutableListOf(), log: (String) -> Unit = {}): Pair<String, Boolean> {
@@ -155,25 +175,11 @@ class Agent(
 
     companion object {
         const val MAX_STEPS = 8
+        // local model: the Dot's role is prepended in local() when set
         const val LOCAL_SYSTEM = "You are FlyAgent, an assistant app on the user's Android phone. Your abilities: chat and answer questions, " +
             "search the web and summarise results, read images and attached files (including ZIP archives), save files and pages, " +
             "remember past tasks and learn skills from the user's 👍 feedback, and run a fruit-fly brain simulation built from the real FlyWire connectome. " +
             "Answer the user's actual question directly and specifically in a few sentences. When information is given, use only that information. " +
             "Never help with illegal or harmful activity."
-        val SYSTEM = """
-You are FlyAgent, an assistant on the user's Android phone. Work step by step using tools.
-Reply with ONLY one JSON object per turn:
-{"tool":"web_search","args":{"query":"..."}}
-{"tool":"fetch_page","args":{"url":"https://..."}}
-{"tool":"write_file","args":{"name":"notes.md","content":"..."}}
-{"tool":"read_file","args":{"name":"..."}}
-{"tool":"list_files","args":{}}
-{"tool":"recall","args":{"query":"..."}}
-{"tool":"brain_sim","args":{"stimulate":"sugar","hz":100,"silence":[]}}  (runs the fruit-fly connectome model; "stimulate" may be a list of FlyWire IDs)
-{"final":"your answer, citing source URLs you actually found"}
-For greetings or normal conversation, reply directly with {"final":"..."} — use tools only when needed.
-If an image is attached, describe/read it directly.
-When you report brain_sim results, say the connectivity is real FlyWire data but the activity is a model simulation.
-""".trimIndent() + "\n" + Safety.PROMPT_RULES
     }
 }

@@ -5,6 +5,7 @@ import org.json.JSONObject
 
 data class Episode(val id: Long, val ts: Long, val task: String, val steps: String, val outcome: String, val success: Boolean, val controller: String = "")
 data class Skill(val id: Long, val name: String, val trigger: String, val steps: String, val version: Int, val status: String)
+data class Page(val id: Long, val ts: Long, val title: String, val body: String)
 data class Img(val base64: String, val mime: String, val bytes: ByteArray)
 
 enum class Mode { OFFLINE, CLOUD, HYBRID }
@@ -18,6 +19,9 @@ interface Store {
     fun facts(): List<String>
     fun saveSkill(name: String, trigger: String, steps: String, status: String): Skill
     fun skills(): List<Skill>
+    fun savePage(title: String, body: String, id: Long = 0): Long
+    fun pages(): List<Page>
+    fun deletePage(id: Long)
     fun recall(query: String, limit: Int = 3) = Recall.rank(query, recent(500), limit)
 }
 

@@ -29,7 +29,7 @@ object Safety {
         return Verdict(true)
     }
 
-    private val allowedTools = setOf("web_search", "fetch_page", "write_file", "read_file", "list_files", "recall", "brain_sim")
+    private val allowedTools = setOf("web_search", "fetch_page", "write_file", "read_file", "list_files", "recall", "brain_sim", "save_page", "mcp")
     private val blockedDownloads = Regex("""\.(apk|exe|bat|sh|dex|jar|msi|scr)(\?|$)""", RegexOption.IGNORE_CASE)
 
     fun checkTool(tool: String, args: JSONObject, resolve: (String) -> List<InetAddress> = { InetAddress.getAllByName(it).toList() }): Verdict {

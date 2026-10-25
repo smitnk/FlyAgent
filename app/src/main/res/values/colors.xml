@@ -1,0 +1,5 @@
+<resources>
+    <color name="surface">#FAF9F5</color><color name="bubble">#EFEBE3</color><color name="card">#FFFFFF</color>
+    <color name="text">#1F1E1C</color><color name="muted">#73706A</color><color name="accent">#D97757</color>
+    <bool name="light_bars">true</bool>
+</resources>
