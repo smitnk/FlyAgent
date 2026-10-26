@@ -65,7 +65,7 @@ class NewToolsApprovalTest {
             .run("email a@b.c", null, Mode.CLOUD, ConventionalController, {}, emptyList(), mail)
         assertEquals(listOf("Send email to a@b.c?"), asked); assertEquals(listOf("draft_email"), ran)
         val coder = Dot.PRESETS.first { it.id == "coder" }
-        assertTrue(coder.allows("gh_pr")); assertEquals(16, coder.maxSteps)
+        assertTrue(coder.allows("gh_pr")); assertEquals(24, coder.maxSteps) // room for build → wait → fix loops
         assertTrue(Prompts.system(coder, emptyList()).contains("gh_search")); assertFalse(Prompts.system(mail, emptyList()).contains("gh_pr"))
         assertTrue(Safety.checkTool("gh_read", JSONObject()).ok)
     }
