@@ -25,12 +25,13 @@ class GitHub(private val token: () -> String,
 
     /** "repo" may be "owner/name" or just "name" (then the token's own account). */
     fun full(repo: String): String {
-        require(Regex("[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?").matches(repo)) { "bad repo name" }
+        require(Regex("[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?").matches(repo) && repo.split('/').none { it == "." || it == ".." }) { "bad repo name" }
         if ('/' in repo) return repo
         val me = login ?: JSONObject(api("GET", "/user")).getString("login").also { login = it }
         return "$me/$repo"
     }
-    private fun enc(p: String) = p.trim('/').split('/').joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
+    private fun enc(p: String) = p.trim('/').split('/').also { parts -> require(parts.none { it == ".." }) { "bad path" } }
+        .joinToString("/") { URLEncoder.encode(it, "UTF-8").replace("+", "%20") }
 
     fun run(tool: String, a: JSONObject): String = when (tool) {
         "gh_repos" -> JSONArray(api("GET", "/user/repos?sort=updated&per_page=30")).let { arr ->
