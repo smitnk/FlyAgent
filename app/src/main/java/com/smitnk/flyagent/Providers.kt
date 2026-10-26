@@ -53,21 +53,41 @@ class ClaudeLlm(private val key: String, private val model: String) : Llm {
 
 data class Provider(val id: String, val label: String, val defaultUrl: String, val defaultModel: String)
 
-/** All settings live in app-private prefs; keys never enter the repo or APK. */
+/** All settings live in app-private prefs; secrets are Keystore-encrypted and never enter the repo or APK. */
 class Settings(ctx: Context) {
     private val p = ctx.getSharedPreferences("settings", Context.MODE_PRIVATE)
     val providers = listOf(
         Provider("claude", "Claude (Anthropic)", "https://api.anthropic.com", "claude-haiku-4-5"),
         Provider("openai", "ChatGPT (OpenAI)", "https://api.openai.com/v1", "gpt-4o-mini"),
-        Provider("nvidia", "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct"),
-        Provider("custom", "Custom (OpenRouter/Groq/Ollama…)", "https://openrouter.ai/api/v1", "anthropic/claude-haiku-4.5"),
+        Provider("gemini", "Gemini (Google)", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+        Provider("nvidia", "NVIDIA NIM (Nemotron…)", "https://integrate.api.nvidia.com/v1", "meta/llama-3.3-70b-instruct"),
+        Provider("deepseek", "DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat"),
+        Provider("kimi", "Kimi (Moonshot)", "https://api.moonshot.ai/v1", "moonshot-v1-8k"),
+        Provider("groq", "Groq", "https://api.groq.com/openai/v1", "llama-3.3-70b-versatile"),
+        Provider("mistral", "Mistral", "https://api.mistral.ai/v1", "mistral-small-latest"),
+        Provider("xai", "Grok (xAI)", "https://api.x.ai/v1", "grok-3-mini"),
+        Provider("custom", "OpenRouter / custom", "https://openrouter.ai/api/v1", "anthropic/claude-haiku-4.5"),
+        Provider("ollama", "Ollama (your PC on Wi-Fi)", "http://192.168.1.10:11434/v1", "llama3.2"),
     )
+    /** Providers that don't need a key: local servers on the user's own network. */
+    private fun keyless(pr: Provider) = pr.id == "ollama" || url(pr).contains("localhost")
     fun enabled(id: String) = p.getBoolean("$id.on", false)
-    fun key(id: String) = p.getString("$id.key", "")!!
+    fun key(id: String) = secret("$id.key")
     fun url(pr: Provider) = p.getString("${pr.id}.url", pr.defaultUrl)!!
     fun model(pr: Provider) = p.getString("${pr.id}.model", pr.defaultModel)!!
-    fun save(id: String, on: Boolean, key: String, url: String, model: String) =
-        p.edit().putBoolean("$id.on", on).putString("$id.key", key).putString("$id.url", url).putString("$id.model", model).apply()
+    fun save(id: String, on: Boolean, key: String, url: String, model: String) {
+        p.edit().putBoolean("$id.on", on).putString("$id.url", url).putString("$id.model", model).apply(); setSecret("$id.key", key)
+    }
+
+    /** Reads a Keystore-encrypted secret; plain values from older versions are encrypted on first read. */
+    fun secret(name: String): String {
+        val stored = p.getString(name, "")!!
+        if (stored.isNotEmpty() && !Crypto.isEncrypted(stored)) setSecret(name, stored)
+        return runCatching { Crypto.decrypt(stored) }.getOrDefault("")
+    }
+    fun setSecret(name: String, value: String) = p.edit().putString(name, Crypto.encrypt(value)).apply()
+    var githubToken: String get() = secret("github.token"); set(v) = setSecret("github.token", v)
+    var speakReplies: Boolean get() = p.getBoolean("tts", false); set(v) = p.edit().putBoolean("tts", v).apply()
 
     var mode: Mode get() = Mode.valueOf(p.getString("mode", "HYBRID")!!); set(v) = p.edit().putString("mode", v.name).apply()
     val controller: Controller get() = ConventionalController
@@ -79,11 +99,12 @@ class Settings(ctx: Context) {
     val dot: Dot get() = dots().firstOrNull { it.id == dotId } ?: Dot.DEFAULT
 
     // MCP connectors (tokens stay in app-private prefs)
-    fun connectors(): List<Connector> = org.json.JSONArray(p.getString("connectors", "[]")).let { a -> (0 until a.length()).map { Connector.from(a.getJSONObject(it)) } }
-    fun saveConnectors(list: List<Connector>) = p.edit().putString("connectors", org.json.JSONArray(list.map { it.json() }).toString()).apply()
+    fun connectors(): List<Connector> = org.json.JSONArray(p.getString("connectors", "[]")).let { a ->
+        (0 until a.length()).map { Connector.from(a.getJSONObject(it)).let { c -> c.copy(token = runCatching { Crypto.decrypt(c.token) }.getOrDefault("")) } } }
+    fun saveConnectors(list: List<Connector>) = p.edit().putString("connectors", org.json.JSONArray(list.map { it.copy(token = Crypto.encrypt(it.token)).json() }).toString()).apply()
 
     /** Enabled providers in priority order; the agent fails over down the list. */
-    fun llms(): List<Llm> = providers.filter { enabled(it.id) && (key(it.id).isNotBlank() || url(it).contains("localhost")) }.map {
+    fun llms(): List<Llm> = providers.filter { enabled(it.id) && (key(it.id).isNotBlank() || keyless(it)) }.map {
         if (it.id == "claude") ClaudeLlm(key(it.id), model(it)) else OpenAiLlm(it.label, url(it), key(it.id), model(it))
     }
 }

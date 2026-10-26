@@ -7,9 +7,9 @@ import org.json.JSONObject
  * A specialist assistant ("Dot", after OpenDots): its own name, role instructions and permitted tool groups.
  * Tool groups keep permissions understandable: the user ticks "Web" rather than individual tools.
  */
-data class Dot(val id: String, val name: String, val instructions: String, val toolGroups: Set<String>) {
+data class Dot(val id: String, val name: String, val instructions: String, val toolGroups: Set<String>, val maxSteps: Int = 8) {
     fun allows(tool: String) = GROUPS.entries.any { (g, tools) -> g in toolGroups && tool in tools }
-    fun json() = JSONObject().put("id", id).put("name", name).put("instructions", instructions).put("tools", JSONArray(toolGroups.toList()))
+    fun json() = JSONObject().put("id", id).put("name", name).put("instructions", instructions).put("tools", JSONArray(toolGroups.toList())).put("maxSteps", maxSteps)
 
     companion object {
         val GROUPS = linkedMapOf(
@@ -19,16 +19,22 @@ data class Dot(val id: String, val name: String, val instructions: String, val t
             "Fly brain" to setOf("brain_sim"),
             "Pages" to setOf("save_page"),
             "Connectors" to setOf("mcp"),
+            "Email" to setOf("draft_email"),
+            "GitHub" to GitHub.TOOLS,
         )
         val DEFAULT = Dot("flyagent", "FlyAgent", "", GROUPS.keys)
         val PRESETS = listOf(
             DEFAULT,
-            Dot("researcher", "Researcher", "You research topics thoroughly: search the web, read sources, compare them, and cite URLs. Prefer facts over opinions.", setOf("Web", "Memory", "Pages")),
+            Dot("researcher", "Researcher", "Deep research mode: run several searches with different wording, open and read at least 3–5 of the best sources with fetch_page, " +
+                "compare them, note disagreements, then write a structured report (summary, key findings, details, sources with URLs). Offer to save it as a page.", setOf("Web", "Memory", "Pages"), maxSteps = 16),
+            Dot("coder", "Coder", "You are a careful software engineer working on the user's GitHub repositories. Explore with gh_tree/gh_search, read the relevant files, " +
+                "explain bugs you find with file and line references, and propose minimal fixes. Only open a pull request (gh_pr, full new file contents) or issue when the user asks; they must approve it.", setOf("GitHub", "Web", "Memory", "Pages"), maxSteps = 16),
+            Dot("assistant", "Mail & Tasks", "You help with everyday tasks: write clear, polite emails in the user's voice (use draft_email so they can review and send), reminders, plans and summaries.", setOf("Email", "Web", "Memory", "Pages")),
             Dot("writer", "Writer", "You turn notes and findings into clear, well-structured drafts. Ask for the audience if unclear. Offer to save drafts as pages.", setOf("Memory", "Pages", "Files")),
             Dot("neuro", "Neuro Lab", "You run and explain fruit-fly connectome simulations. Always separate real connectivity data from modeled activity.", setOf("Fly brain", "Memory", "Pages")),
         )
         fun from(o: JSONObject) = Dot(o.getString("id"), o.getString("name"), o.optString("instructions"),
-            o.optJSONArray("tools")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: GROUPS.keys)
+            o.optJSONArray("tools")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: GROUPS.keys, o.optInt("maxSteps", 8))
     }
 }
 
@@ -43,6 +49,13 @@ object Prompts {
         "recall" to """{"tool":"recall","args":{"query":"..."}}""",
         "brain_sim" to """{"tool":"brain_sim","args":{"stimulate":"sugar","hz":100,"silence":[]}}  (fruit-fly connectome model; "stimulate" may be a list of FlyWire IDs)""",
         "save_page" to """{"tool":"save_page","args":{"title":"...","content":"markdown"}}  (saves a page to the user's Space; the user must approve it)""",
+        "draft_email" to """{"tool":"draft_email","args":{"to":"name@example.com","subject":"...","body":"..."}}  (user reviews, then it opens in their email app to send)""",
+        "gh_repos" to """{"tool":"gh_repos","args":{}}  (the user's GitHub repositories)""",
+        "gh_tree" to """{"tool":"gh_tree","args":{"repo":"owner/name","path":"src"}}""",
+        "gh_read" to """{"tool":"gh_read","args":{"repo":"owner/name","path":"src/Main.kt"}}""",
+        "gh_search" to """{"tool":"gh_search","args":{"repo":"owner/name","query":"functionName"}}""",
+        "gh_issue" to """{"tool":"gh_issue","args":{"repo":"owner/name","title":"...","body":"..."}}  (needs approval)""",
+        "gh_pr" to """{"tool":"gh_pr","args":{"repo":"owner/name","title":"...","body":"...","files":[{"path":"src/Main.kt","content":"<full new file>"}]}}  (needs approval)""",
     )
 
     fun system(dot: Dot, mcp: List<McpTool>) = buildString {
