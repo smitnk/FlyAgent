@@ -75,3 +75,42 @@ class NewToolsApprovalTest {
         assertEquals(d, Dot.from(d.json()))
     }
 }
+
+class DeepThinkAndBuildTest {
+    @Test fun deepThinkReinjectsQuestionEveryLoopAndStopsAtFixedPoint() {
+        val llm = FakeLlm(replies = mutableListOf("""{"final":"draft 41"}""", "answer 42", "answer 42", "never used"))
+        val r = Agent(FakeStore(), FakeTools()::run, { listOf(llm) }).run("what is 6*7 exactly?", null, Mode.CLOUD, ConventionalController, {}, emptyList(), Dot.DEFAULT, thinkRounds = 3)
+        assertEquals("answer 42", r.answer)
+        assertEquals(3, llm.calls)                                   // answer + loop1 (changed) + loop2 (same → converged)
+        assertTrue(llm.lastMsgs.single().second.startsWith("ORIGINAL QUESTION (re-read it carefully):\nwhat is 6*7 exactly?"))
+        assertTrue(llm.lastMsgs.single().second.contains("CURRENT ANSWER (loop 2):\nanswer 42"))
+    }
+
+    @Test fun deepThinkOffMakesOneCall() {
+        val llm = FakeLlm()
+        Agent(FakeStore(), FakeTools()::run, { listOf(llm) }).run("hi there friend", null, Mode.CLOUD, ConventionalController, {})
+        assertEquals(1, llm.calls)
+    }
+
+    @Test fun cloudBuildWaitAndInstallFromArtifact() {
+        val apkDir = java.nio.file.Files.createTempDirectory("apks").toFile()
+        val zip = java.io.ByteArrayOutputStream().also { b -> java.util.zip.ZipOutputStream(b).use { z ->
+            z.putNextEntry(java.util.zip.ZipEntry("app-debug.apk")); z.write(ByteArray(1234) { 7 }); z.closeEntry() } }.toByteArray()
+        var installed: java.io.File? = null; var polls = 0
+        val gh = GitHub({ "tok" }, { method, url, _, _ ->
+            val p = url.removePrefix("https://api.github.com")
+            when {
+                p == "/repos/me/app/actions/workflows" -> 200 to """{"workflows":[{"id":5,"name":"build","path":".github/workflows/build.yml","state":"active"}]}"""
+                p == "/repos/me/app" -> 200 to """{"default_branch":"main"}"""
+                p == "/repos/me/app/actions/workflows/5/dispatches" && method == "POST" -> 204 to ""
+                p == "/repos/me/app/actions/runs/99" -> { polls++; 200 to (if (polls < 2) """{"status":"in_progress"}""" else """{"status":"completed","conclusion":"success"}""") }
+                p == "/repos/me/app/actions/runs/99/artifacts" -> 200 to """{"artifacts":[{"id":3,"name":"FlyAgent-debug-apk","size_in_bytes":1234,"expired":false}]}"""
+                else -> 404 to """{"message":"Not Found"}"""
+            }
+        }, apkDir, { f -> installed = f; "installer opened" }, { url, h -> assertEquals("Bearer tok", h["Authorization"]); assertTrue(url.endsWith("/artifacts/3/zip")); zip }, sleep = {})
+        assertTrue(gh.run("gh_build", JSONObject().put("repo", "me/app")).startsWith("Started workflow 'build' on main"))
+        assertTrue(gh.run("gh_wait", JSONObject().put("repo", "me/app").put("run_id", 99)).startsWith("Build 99 succeeded"))
+        assertTrue(gh.run("gh_install", JSONObject().put("repo", "me/app").put("run_id", 99)).endsWith("installer opened"))
+        assertEquals(1234L, installed!!.length())
+    }
+}

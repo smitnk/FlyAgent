@@ -19,14 +19,39 @@ class Agent(
     private val approve: (title: String, detail: String) -> Boolean = { _, _ -> false },
 ) {
     private var dot = Dot.DEFAULT
+    private var thinkRounds = 0
+
+    /**
+     * Deep Think: prompt-level looped reasoning. The model revisits its answer for several rounds, and the ORIGINAL
+     * question is re-injected at the start of every round so it can't drift (the idea behind input injection in looped
+     * language models). Stops early when an answer stops changing (a fixed point). Not a trained looped model:
+     * it spends extra model calls, not extra layers.
+     */
+    private fun deepThink(llm: Llm, question: String, draft: String, log: (String) -> Unit, onToken: (String) -> Boolean, maxTokens: Int = 2000): String {
+        var ans = draft
+        for (i in 1..thinkRounds) {
+            if (stopped || ans.isBlank()) break
+            log("Deep Think loop $i/$thinkRounds — original question re-injected")
+            val prompt = "ORIGINAL QUESTION (re-read it carefully):\n${question.take(6000)}\n\nCURRENT ANSWER (loop $i):\n$ans\n\n" +
+                "Think it through again from the start. Check every fact, step and calculation against the original question; fix mistakes, " +
+                "fill gaps, and remove anything that wasn't asked. Reply with ONLY the improved complete answer, no notes about what you changed."
+            val out = runCatching { llm.chatStream(DEEP_SYSTEM, listOf("user" to Safety.redact(prompt)), maxTokens) { onToken(it) && !stopped } }
+                .onFailure { log("Deep Think stopped: ${it.message}") }.getOrNull() ?: break
+            val next = (ActionParser.parse(out)?.answer ?: out).trim()
+            if (next.isBlank()) break
+            if (next == ans.trim()) { log("Deep Think converged after $i loop(s)"); break }
+            ans = next
+        }
+        return ans
+    }
     @Volatile private var stopped = false
     /** Stop button: ends local generation at the next token and the cloud loop at the next step. */
     fun stop() { stopped = true }
 
     /** history: earlier (role, text) turns of this chat, oldest first. onToken streams the visible reply so far. */
     fun run(task: String, image: Img?, mode: Mode, controller: Controller, log: (String) -> Unit, history: List<Pair<String, String>> = emptyList(),
-            dot: Dot = Dot.DEFAULT, onToken: (String) -> Boolean = { true }): Result {
-        stopped = false; this.dot = dot
+            dot: Dot = Dot.DEFAULT, thinkRounds: Int = 0, onToken: (String) -> Boolean = { true }): Result {
+        stopped = false; this.dot = dot; this.thinkRounds = thinkRounds
         val steps = mutableListOf<Pair<String, JSONObject>>()
         fun finish(answer: String, ok: Boolean, cloud: Boolean): Result {
             val stepsJson = SkillTemplate.make(steps, SkillTemplate.inputOf(task))
@@ -52,7 +77,7 @@ class Agent(
                 try {
                     log("Reasoning with ${llm.name}…")
                     val (ans, ok) = reason(llm, task, image, past, skill, steps, log, history)
-                    return finish(ans, ok, true)
+                    return finish(if (ok) deepThink(llm, task, ans, log, onToken) else ans, ok, true)
                 } catch (e: Exception) { log("${llm.name} failed: ${e.message?.take(200)}") }
             }
             if (mode == Mode.CLOUD) return finish("All cloud providers failed.", false, true)
@@ -127,7 +152,7 @@ class Agent(
         log("Thinking with ${model.name}…")
         return try {
             val sys = if (dot.instructions.isBlank()) LOCAL_SYSTEM else "$LOCAL_SYSTEM Your role: ${dot.instructions}"
-            val ans = model.chatStream(sys, msgs, 200) { onToken(it) && !stopped }
+            val ans = deepThink(model, task, model.chatStream(sys, msgs, 200) { onToken(it) && !stopped }, log, onToken, maxTokens = 256)
             model.lastStats.takeIf { it.isNotBlank() }?.let { log("Speed: $it") }
             val text = ans.ifBlank { "(no answer)" } + if (stopped) " …(stopped)" else ""
             (if (toolOut != null) "$text\n\n— ${if (toolOut.startsWith(BrainLab.TAG)) "Simulation output" else "Sources"} —\n$toolOut" else text) to true
@@ -139,6 +164,8 @@ class Agent(
         "save_page" -> "Save page \"${args.optString("title").take(80)}\"?" to args.optString("content").take(1500)
         "draft_email" -> "Send email to ${args.optString("to").ifBlank { "(recipient not set)" }}?" to "Subject: ${args.optString("subject")}\n\n${args.optString("body").take(1500)}"
         "gh_issue" -> "Open issue in ${args.optString("repo")}?" to "${args.optString("title")}\n\n${args.optString("body").take(1200)}"
+        "gh_build" -> "Start a cloud build of ${args.optString("repo")}?" to "GitHub Actions will build ${args.optString("workflow").ifBlank { "the project's workflow" }} on ${args.optString("ref").ifBlank { "the default branch" }}."
+        "gh_install" -> "Install the APK built from ${args.optString("repo")}?" to "Downloads the build artifact from GitHub Actions${if (args.optLong("run_id") > 0) " (run ${args.optLong("run_id")})" else " (latest successful run)"} and opens Android's installer — you confirm the install there too."
         "gh_pr" -> "Open pull request in ${args.optString("repo")}?" to "${args.optString("title")}\n\nFiles: " +
             (args.optJSONArray("files")?.let { a -> (0 until a.length()).joinToString { a.getJSONObject(it).optString("path") } } ?: "none") + "\n\n${args.optString("body").take(800)}"
         "mcp" -> {
@@ -178,6 +205,8 @@ class Agent(
     } catch (e: Exception) { log("Skill test failed: ${e.message}"); false }
 
     companion object {
+        const val DEEP_SYSTEM = "You are a meticulous expert reviewer improving an answer to the user's question. Be accurate and concise. " +
+            "Never help with illegal or harmful activity."
         // local model: the Dot's role is prepended in local() when set
         const val LOCAL_SYSTEM = "You are FlyAgent, an assistant app on the user's Android phone. Your abilities: chat and answer questions, " +
             "search the web and summarise results, read images and attached files (including ZIP archives), save files and pages, " +

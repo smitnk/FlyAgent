@@ -47,6 +47,8 @@ object AgentHub {
     /** Set by the activity: opens the email app with a draft. */
     @Volatile var emailLauncher: ((String, String, String) -> Unit)? = null
     @Volatile var foreground = false
+    /** Set by the activity: opens Android's package installer for a downloaded APK. */
+    @Volatile var installer: ((File) -> Unit)? = null
 
     val messages = mutableStateListOf<UiMsg>()
     var chatId by mutableStateOf(-1L)
@@ -56,7 +58,7 @@ object AgentHub {
         if (::agent.isInitialized) return
         app = ctx.applicationContext
         memory = MemoryDb(app); settings = Settings(app); connectors = ConnectorRegistry(settings::connectors)
-        val github = GitHub({ settings.githubToken })
+        val github = GitHub({ settings.githubToken }, apkDir = File(app.cacheDir, "apks"), install = { apk -> main.post { installer?.invoke(apk) }; "Android's installer is opening — confirm to install." })
         val tools = Tools(File(app.filesDir, "workspace"), memory, { ConnectomeBrain.get(app) }, connectors::call, github) { to, subject, body ->
             val l = emailLauncher ?: return@Tools "ERROR: open FlyAgent to send email"
             main.post { l(to, subject, body) }; "Opened the draft in your email app — press Send there."
@@ -81,12 +83,12 @@ object AgentHub {
         messages += UiMsg("user", shown); memory.addMessage(chat, "user", shown)
         val reply = UiMsg("assistant", "").apply { working = true }; messages += reply
         busy = true; pending++
-        val dot = settings.dot; val mode = settings.mode
+        val dot = settings.dot; val mode = settings.mode; val rounds = settings.deepThink
         app.startForegroundService(Intent(app, AgentService::class.java))
         worker.execute {
             val log = StringBuilder()
             val r = runCatching {
-                agent.run(task, image, mode, settings.controller, { line -> log.appendLine(line); main.post { reply.details = log.toString().trim() } }, history, dot) { partial ->
+                agent.run(task, image, mode, settings.controller, { line -> log.appendLine(line); main.post { reply.details = log.toString().trim() } }, history, dot, rounds) { partial ->
                     main.post { reply.text = partial }; true
                 }
             }.getOrElse { Result(-1, "Error: ${it.message}", false, false) }

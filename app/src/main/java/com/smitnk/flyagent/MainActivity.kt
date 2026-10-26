@@ -52,6 +52,13 @@ class MainActivity : ComponentActivity() {
                     .putExtra(Intent.EXTRA_SUBJECT, subject).putExtra(Intent.EXTRA_TEXT, body))
             }.onFailure { toast("No email app found") }
         }
+        AgentHub.installer = { apk ->
+            if (!packageManager.canRequestPackageInstalls()) {
+                toast("Allow FlyAgent to install apps, then ask again")
+                startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            } else startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(androidx.core.content.FileProvider.getUriForFile(this, "$packageName.files", apk),
+                "application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
         AgentHub.onReply = { if (AgentHub.settings.speakReplies) speak(it) }
         if (Build.VERSION.SDK_INT >= 33) notifPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         setContent { FlyTheme { FlyApp(this) } }

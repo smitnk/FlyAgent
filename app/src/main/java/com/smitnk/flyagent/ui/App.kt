@@ -248,9 +248,18 @@ private fun Composer(act: MainActivity) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Column {
             val chip = act.image?.let { "🖼 Image" } ?: act.file?.let { "📎 ${it.first}" }
-            if (chip != null) Row(Modifier.padding(start = 14.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Tag(chip, PocketOrange); Spacer(Modifier.width(6.dp))
-                Icon(Icons.Default.Close, "Remove", Modifier.size(16.dp).clickable { act.image = null; act.file = null })
+            var deep by remember { mutableStateOf(AgentHub.settings.deepThink) }
+            Row(Modifier.padding(start = 14.dp, top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Deep Think: the model re-thinks its answer in loops with the question re-injected each time
+                Text(if (deep > 0) "🔁 Deep Think ×$deep" else "🔁 Deep Think", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                    color = if (deep > 0) PocketOrange else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(if (deep > 0) PocketOrange.copy(alpha = 0.14f) else Color.Transparent)
+                        .border(1.dp, if (deep > 0) PocketOrange.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                        .clickable { deep = if (deep > 0) 0 else 2; AgentHub.settings.deepThink = deep }.padding(horizontal = 8.dp, vertical = 3.dp))
+                if (chip != null) {
+                    Spacer(Modifier.width(8.dp)); Tag(chip, PocketOrange); Spacer(Modifier.width(6.dp))
+                    Icon(Icons.Default.Close, "Remove", Modifier.size(16.dp).clickable { act.image = null; act.file = null })
+                }
             }
             Row(verticalAlignment = Alignment.Bottom, modifier = Modifier.padding(4.dp)) {
                 Box {
@@ -511,6 +520,17 @@ fun SettingsScreen(act: MainActivity) {
                     }
                 }
             }
+            item {
+                var rounds by remember { mutableStateOf(s.deepThink) }
+                SectionCard("Deep Think (looped reasoning)", "The model re-thinks its answer in loops, re-reading your original question at the start of every loop so it doesn't drift — " +
+                    "inspired by looped language models with input injection. Stops early when the answer stops changing. Costs extra model calls and time.") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(0, 1, 2, 3, 4).forEach { n -> FilterChip(rounds == n, { rounds = n; s.deepThink = n }, { Text(if (n == 0) "Off" else "×$n") },
+                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PocketOrange.copy(alpha = 0.18f), selectedLabelColor = PocketOrange)) }
+                    }
+                    Text("This is a prompt-level technique for any model. A trained looped model (e.g. ByteDance Ouro) can't run on the phone yet.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             item { BrainCard(act) }
             item {
                 val m = AgentHub.memory
@@ -623,7 +643,8 @@ private fun ConnectorsCard(act: MainActivity) {
 private fun GitHubCard(act: MainActivity) {
     val s = AgentHub.settings
     var token by remember { mutableStateOf(s.githubToken) }
-    SectionCard("GitHub (Coder Dot)", "A fine-grained personal access token lets the Coder Dot read your repos, find bugs and — only after you approve — open issues or pull requests.") {
+    SectionCard("GitHub (Coder Dot)", "A fine-grained token lets the Coder Dot read your repos, find bugs, and — only after you approve — open issues/PRs, run cloud builds with GitHub Actions and install the built APK. " +
+        "Token permissions: Contents, Issues, Pull requests (read & write), Actions (read & write).") {
         Field("Personal access token", token, { token = it }, secret = true)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button({ s.githubToken = token.trim(); act.status = "GitHub token saved (encrypted)" }, colors = ButtonDefaults.buttonColors(containerColor = PocketOrange), shape = RoundedCornerShape(12.dp)) { Text("Save") }

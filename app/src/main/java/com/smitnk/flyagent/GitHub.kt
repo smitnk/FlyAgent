@@ -12,7 +12,12 @@ import java.util.Base64
  * Reads are bounded (Mobile Harness-style) so a huge file can't flood the model's context.
  */
 class GitHub(private val token: () -> String,
-             private val http: (method: String, url: String, headers: Map<String, String>, body: String?) -> Pair<Int, String> = ::httpCall) {
+             private val http: (method: String, url: String, headers: Map<String, String>, body: String?) -> Pair<Int, String> = ::httpCall,
+             /** Where downloaded APKs go, and how to hand one to Android's installer. */
+             private val apkDir: java.io.File? = null,
+             private val install: (java.io.File) -> String = { "ERROR: installing isn't available here" },
+             private val download: (url: String, headers: Map<String, String>) -> ByteArray = ::downloadBytes,
+             private val sleep: (Long) -> Unit = Thread::sleep) {
     private var login: String? = null
 
     private fun api(method: String, path: String, body: JSONObject? = null): String {
@@ -52,7 +57,75 @@ class GitHub(private val token: () -> String,
         "gh_issue" -> JSONObject(api("POST", "/repos/${full(a.getString("repo"))}/issues", JSONObject().put("title", a.getString("title")).put("body", a.optString("body"))))
             .let { "Opened issue #${it.getInt("number")}: ${it.getString("html_url")}" }
         "gh_pr" -> pullRequest(full(a.getString("repo")), a)
+        "gh_runs" -> runs(full(a.getString("repo")))
+        "gh_build" -> build(full(a.getString("repo")), a)
+        "gh_wait" -> waitRun(full(a.getString("repo")), a.getLong("run_id"))
+        "gh_install" -> installApk(full(a.getString("repo")), a.optLong("run_id", 0))
         else -> "ERROR: unknown GitHub tool $tool"
+    }
+
+    // ---------- cloud builds: GitHub Actions does the compiling, the phone installs the result ----------
+
+    private fun runs(repo: String) = JSONObject(api("GET", "/repos/$repo/actions/runs?per_page=6")).getJSONArray("workflow_runs").let { arr ->
+        (0 until arr.length()).joinToString("\n") { i -> arr.getJSONObject(i).let {
+            "run ${it.getLong("id")} · ${it.optString("name")} · ${it.optString("head_branch")} · ${it.optString("status")}/${it.optString("conclusion", "-")} · ${it.optString("html_url")}" } }
+            .ifEmpty { "(no workflow runs yet — the repo needs a GitHub Actions workflow)" }
+    }
+
+    /** Starts a build: dispatches a workflow (needs `workflow_dispatch:` in its triggers) or re-runs the latest run. */
+    private fun build(repo: String, a: JSONObject): String {
+        val workflows = JSONObject(api("GET", "/repos/$repo/actions/workflows")).getJSONArray("workflows")
+        val all = (0 until workflows.length()).map { workflows.getJSONObject(it) }.filter { it.optString("state") == "active" }
+        val wf = a.optString("workflow").ifBlank { null }?.let { w -> all.firstOrNull { it.optString("path").endsWith(w) || it.optString("name") == w } }
+            ?: all.singleOrNull() ?: all.firstOrNull { it.optString("path").contains("build", true) } ?: error("no active workflow found in $repo")
+        val ref = a.optString("ref").ifBlank { JSONObject(api("GET", "/repos/$repo")).getString("default_branch") }
+        return runCatching {
+            api("POST", "/repos/$repo/actions/workflows/${wf.getLong("id")}/dispatches", JSONObject().put("ref", ref))
+            "Started workflow '${wf.optString("name")}' on $ref. Use gh_runs to get the run id, then gh_wait."
+        }.getOrElse {
+            // workflows without workflow_dispatch can still be re-run
+            val latest = JSONObject(api("GET", "/repos/$repo/actions/workflows/${wf.getLong("id")}/runs?per_page=1")).getJSONArray("workflow_runs")
+            if (latest.length() == 0) throw it
+            val id = latest.getJSONObject(0).getLong("id"); api("POST", "/repos/$repo/actions/runs/$id/rerun")
+            "Re-running workflow '${wf.optString("name")}' (run $id). Use gh_wait with run_id $id."
+        }
+    }
+
+    /** Polls a run until it finishes (up to ~15 minutes); returns the result and failing step names. */
+    private fun waitRun(repo: String, id: Long): String {
+        repeat(90) {
+            val r = JSONObject(api("GET", "/repos/$repo/actions/runs/$id"))
+            if (r.optString("status") == "completed") {
+                val c = r.optString("conclusion")
+                if (c == "success") return "Build $id succeeded. Use gh_install to install the APK."
+                val jobs = JSONObject(api("GET", "/repos/$repo/actions/runs/$id/jobs")).getJSONArray("jobs")
+                val failed = (0 until jobs.length()).flatMap { j -> jobs.getJSONObject(j).optJSONArray("steps")?.let { s -> (0 until s.length()).map { s.getJSONObject(it) } } ?: emptyList() }
+                    .filter { it.optString("conclusion") == "failure" }.joinToString { it.optString("name") }
+                return "Build $id finished: $c. Failed steps: ${failed.ifEmpty { "unknown" }}. ${r.optString("html_url")}"
+            }
+            sleep(10_000)
+        }
+        return "Build $id is still running after 15 minutes: check again with gh_wait."
+    }
+
+    /** Downloads the APK artifact of a successful run (latest one if run_id is 0) and opens Android's installer. */
+    private fun installApk(repo: String, runId: Long): String {
+        val dir = apkDir ?: error("installing isn't available here")
+        val id = if (runId > 0) runId else JSONObject(api("GET", "/repos/$repo/actions/runs?status=success&per_page=1")).getJSONArray("workflow_runs")
+            .let { if (it.length() == 0) error("no successful build yet") else it.getJSONObject(0).getLong("id") }
+        val arts = JSONObject(api("GET", "/repos/$repo/actions/runs/$id/artifacts")).getJSONArray("artifacts")
+        val art = (0 until arts.length()).map { arts.getJSONObject(it) }.let { l -> l.firstOrNull { it.optString("name").contains("apk", true) } ?: l.firstOrNull() }
+            ?: error("run $id has no artifacts — the workflow must upload the APK with actions/upload-artifact")
+        if (art.optBoolean("expired")) error("artifact expired; start a new build")
+        if (art.optLong("size_in_bytes") > MAX_APK) error("artifact is too large (${art.optLong("size_in_bytes") / 1_000_000} MB)")
+        val zip = download("https://api.github.com/repos/$repo/actions/artifacts/${art.getLong("id")}/zip",
+            mapOf("Authorization" to "Bearer ${token()}", "Accept" to "application/vnd.github+json"))
+        val apk = java.util.zip.ZipInputStream(zip.inputStream()).use { z ->
+            generateSequence { z.nextEntry }.firstOrNull { it.name.endsWith(".apk") && !it.name.contains("..") }?.let { e ->
+                java.io.File(dir.apply { mkdirs() }, e.name.substringAfterLast('/')).also { f -> f.outputStream().use { z.copyTo(it) } }
+            }
+        } ?: error("no .apk inside artifact '${art.optString("name")}'")
+        return install(apk).let { "Downloaded ${apk.name} (${apk.length() / 1_000_000} MB) from run $id. $it" }
     }
 
     /** Creates a branch, commits the given full-file contents to it, and opens a PR against the default branch. */
@@ -77,7 +150,17 @@ class GitHub(private val token: () -> String,
 
     companion object {
         const val MAX_READ = 40_000
-        val TOOLS = setOf("gh_repos", "gh_tree", "gh_read", "gh_search", "gh_issue", "gh_pr")
+        const val MAX_APK = 300_000_000L
+        val TOOLS = setOf("gh_repos", "gh_tree", "gh_read", "gh_search", "gh_issue", "gh_pr", "gh_runs", "gh_build", "gh_wait", "gh_install")
+        fun downloadBytes(url: String, headers: Map<String, String>): ByteArray {
+            val c = URL(url).openConnection() as HttpURLConnection
+            c.connectTimeout = 15000; c.readTimeout = 120000; c.instanceFollowRedirects = false
+            headers.forEach { (k, v) -> c.setRequestProperty(k, v) }
+            // GitHub answers with a redirect to a pre-signed storage URL; follow it without sending the token there
+            if (c.responseCode in 300..399) return URL(c.getHeaderField("Location")).openStream().use { it.readBytes() }
+            if (c.responseCode !in 200..299) error("download failed: HTTP ${c.responseCode}")
+            return c.inputStream.use { it.readBytes() }
+        }
         fun httpCall(method: String, url: String, headers: Map<String, String>, body: String?): Pair<Int, String> {
             val c = URL(url).openConnection() as HttpURLConnection
             c.requestMethod = method; c.connectTimeout = 15000; c.readTimeout = 60000

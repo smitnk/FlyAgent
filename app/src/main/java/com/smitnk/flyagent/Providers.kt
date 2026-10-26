@@ -87,6 +87,8 @@ class Settings(ctx: Context) {
     }
     fun setSecret(name: String, value: String) = p.edit().putString(name, Crypto.encrypt(value)).apply()
     var githubToken: String get() = secret("github.token"); set(v) = setSecret("github.token", v)
+    /** Deep Think loops per answer (0 = off). */
+    var deepThink: Int get() = p.getInt("deep", 0); set(v) = p.edit().putInt("deep", v).apply()
     var speakReplies: Boolean get() = p.getBoolean("tts", false); set(v) = p.edit().putBoolean("tts", v).apply()
 
     var mode: Mode get() = Mode.valueOf(p.getString("mode", "HYBRID")!!); set(v) = p.edit().putString("mode", v.name).apply()

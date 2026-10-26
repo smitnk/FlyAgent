@@ -28,7 +28,8 @@ data class Dot(val id: String, val name: String, val instructions: String, val t
             Dot("researcher", "Researcher", "Deep research mode: run several searches with different wording, open and read at least 3–5 of the best sources with fetch_page, " +
                 "compare them, note disagreements, then write a structured report (summary, key findings, details, sources with URLs). Offer to save it as a page.", setOf("Web", "Memory", "Pages"), maxSteps = 16),
             Dot("coder", "Coder", "You are a careful software engineer working on the user's GitHub repositories. Explore with gh_tree/gh_search, read the relevant files, " +
-                "explain bugs you find with file and line references, and propose minimal fixes. Only open a pull request (gh_pr, full new file contents) or issue when the user asks; they must approve it.", setOf("GitHub", "Web", "Memory", "Pages"), maxSteps = 16),
+                "explain bugs you find with file and line references, and propose minimal fixes. Only open a pull request (gh_pr, full new file contents) or issue when the user asks; they must approve it. " +
+                "To build an app: gh_build, then gh_runs for the run id, gh_wait until it finishes; if it fails, read the failed step and fix the code; if it succeeds, gh_install puts the APK on this phone.", setOf("GitHub", "Web", "Memory", "Pages"), maxSteps = 24),
             Dot("assistant", "Mail & Tasks", "You help with everyday tasks: write clear, polite emails in the user's voice (use draft_email so they can review and send), reminders, plans and summaries.", setOf("Email", "Web", "Memory", "Pages")),
             Dot("writer", "Writer", "You turn notes and findings into clear, well-structured drafts. Ask for the audience if unclear. Offer to save drafts as pages.", setOf("Memory", "Pages", "Files")),
             Dot("neuro", "Neuro Lab", "You run and explain fruit-fly connectome simulations. Always separate real connectivity data from modeled activity.", setOf("Fly brain", "Memory", "Pages")),
@@ -55,6 +56,10 @@ object Prompts {
         "gh_read" to """{"tool":"gh_read","args":{"repo":"owner/name","path":"src/Main.kt"}}""",
         "gh_search" to """{"tool":"gh_search","args":{"repo":"owner/name","query":"functionName"}}""",
         "gh_issue" to """{"tool":"gh_issue","args":{"repo":"owner/name","title":"...","body":"..."}}  (needs approval)""",
+        "gh_runs" to """{"tool":"gh_runs","args":{"repo":"owner/name"}}  (recent GitHub Actions builds)""",
+        "gh_build" to """{"tool":"gh_build","args":{"repo":"owner/name","workflow":"build.yml"}}  (starts a cloud build; needs approval)""",
+        "gh_wait" to """{"tool":"gh_wait","args":{"repo":"owner/name","run_id":123}}  (waits for a build and reports failed steps)""",
+        "gh_install" to """{"tool":"gh_install","args":{"repo":"owner/name","run_id":123}}  (downloads the built APK and opens the installer; needs approval)""",
         "gh_pr" to """{"tool":"gh_pr","args":{"repo":"owner/name","title":"...","body":"...","files":[{"path":"src/Main.kt","content":"<full new file>"}]}}  (needs approval)""",
     )
 
