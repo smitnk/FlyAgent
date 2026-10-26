@@ -26,5 +26,8 @@ FetchContent_Declare(llama GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.
 FetchContent_MakeAvailable(llama)
 
 add_library(flyagent SHARED connectome.cpp llm_core.cpp jni_bridge.cpp)
+
+# Linux workspace (PRoot + Ubuntu), from Mobile Harness
+add_subdirectory(mh)
 target_link_libraries(flyagent llama android log)
 target_compile_options(flyagent PRIVATE -O3)

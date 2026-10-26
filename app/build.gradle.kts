@@ -8,10 +8,10 @@ android {
     compileSdk = 35
     defaultConfig {
         applicationId = "com.smitnk.flyagent"
-        minSdk = 26
-        targetSdk = 34
-        versionCode = 6
-        versionName = "0.6.0"
+        minSdk = 28
+        targetSdk = 28 // required to run the Linux workspace (PRoot), like Mobile Harness; means sideload-only, no Play Store
+        versionCode = 7
+        versionName = "0.7.0"
         ndk { abiFilters += "arm64-v8a" } // 64-bit ARM phones; llama.cpp and the connectome need 64-bit
         // Debug APKs default to -O0 native code, which makes llama.cpp 10-50x slower: always build native code optimized
         externalNativeBuild { cmake { arguments += listOf("-DCMAKE_BUILD_TYPE=Release", "-DANDROID_STL=c++_shared") } }
@@ -25,8 +25,9 @@ android {
     buildFeatures { compose = true }
     externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     androidResources { noCompress += "bin" }
-    // extract .so files so llama.cpp can scan nativeLibraryDir and pick the best CPU variant at runtime
-    packaging { jniLibs { useLegacyPackaging = true } }
+    // extract .so files: llama.cpp scans nativeLibraryDir for CPU variants, and proot runs from there
+    packaging { jniLibs { useLegacyPackaging = true }; resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    buildFeatures { buildConfig = true }
 }
 dependencies {
     // UI: Jetpack Compose + Material 3 (same stack as Mobile Harness)
@@ -40,6 +41,11 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     // scheduled tasks
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    // Linux workspace runtime (from Mobile Harness): coroutines, archives
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.apache.commons:commons-compress:1.27.1")
+    implementation("com.github.luben:zstd-jni:1.5.7-12@aar")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     // on-device, offline image reading (bundled models, no download needed)
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.mlkit:image-labeling:17.0.9")

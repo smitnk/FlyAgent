@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- install APKs built by your own GitHub Actions (you confirm every install) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Linux workspace (from Mobile Harness) -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <!-- Android 11+ package visibility: text-to-speech engines, speech recognizer, email apps -->
     <queries>
@@ -28,6 +32,13 @@
             android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
         </provider>
+        <service android:name=".mh.runtime.RuntimeExecutionService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-started local development task" />
+        </service>
+        <service android:name=".mh.runtime.RuntimeSetupService" android:exported="false" android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-started installation of the local coding environment" />
+        </service>
+        <receiver android:name=".mh.runtime.AndroidAppInstallReceiver" android:exported="false" />
         <service android:name=".AgentService" android:exported="false" android:foregroundServiceType="dataSync" />
     </application>
 </manifest>

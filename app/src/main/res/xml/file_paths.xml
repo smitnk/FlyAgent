@@ -1,1 +1,4 @@
-<paths><cache-path name="apks" path="apks/" /></paths>
+<paths>
+    <cache-path name="apks" path="apks/" />
+    <files-path name="workspaces" path="workspaces/" />
+</paths>
