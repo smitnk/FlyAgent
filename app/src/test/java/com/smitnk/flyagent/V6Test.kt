@@ -9,7 +9,7 @@ import java.util.Calendar
 
 class GitHubTest {
     private val calls = mutableListOf<Triple<String, String, String?>>()
-    private val gh = GitHub({ "tok" }) { method, url, headers, body ->
+    private val gh = GitHub({ "tok" }, http = { method, url, headers, body ->
         calls += Triple(method, url.removePrefix("https://api.github.com"), body)
         assertEquals("Bearer tok", headers["Authorization"])
         val path = url.removePrefix("https://api.github.com")
@@ -25,7 +25,7 @@ class GitHubTest {
             path == "/repos/smitnk/app/pulls" -> 201 to """{"number":7,"html_url":"https://github.com/smitnk/app/pull/7"}"""
             else -> 404 to """{"message":"Not Found"}"""
         }
-    }
+    })
 
     @Test fun shortRepoNameUsesOwnAccountAndReadsAreBounded() {
         val out = gh.run("gh_read", JSONObject().put("repo", "app").put("path", "src/Big.kt"))
@@ -44,7 +44,7 @@ class GitHubTest {
 
     @Test fun rejectsBadInput() {
         assertThrows(IllegalArgumentException::class.java) { gh.full("../etc") }
-        assertThrows(IllegalStateException::class.java) { GitHub({ "" }) { _, _, _, _ -> 200 to "[]" }.run("gh_repos", JSONObject()) }
+        assertThrows(IllegalStateException::class.java) { GitHub({ "" }, http = { _, _, _, _ -> 200 to "[]" }).run("gh_repos", JSONObject()) }
     }
 }
 
