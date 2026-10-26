@@ -12,6 +12,11 @@ android {
         targetSdk = 28 // required to run the Linux workspace (PRoot), like Mobile Harness; means sideload-only, no Play Store
         versionCode = 7
         versionName = "0.7.0"
+        // Linux workspace runtime (from Mobile Harness): online edition, downloads bundles from official sources
+        buildConfigField("boolean", "OFFLINE_RUNTIME_BUNDLES", "false")
+        buildConfigField("boolean", "IS_PLAY_BUILD", "false")
+        // prepared runtime bundles from Mobile Harness's release; every file is SHA-256-pinned in RuntimeInstaller
+        buildConfigField("String", "RUNTIME_RELEASE_BASE_URL", "\"https://github.com/techjarves/Mobile-Harness/releases/download/runtime-2026.09.4\"")
         ndk { abiFilters += "arm64-v8a" } // 64-bit ARM phones; llama.cpp and the connectome need 64-bit
         // Debug APKs default to -O0 native code, which makes llama.cpp 10-50x slower: always build native code optimized
         externalNativeBuild { cmake { arguments += listOf("-DCMAKE_BUILD_TYPE=Release", "-DANDROID_STL=c++_shared") } }
