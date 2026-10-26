@@ -79,8 +79,13 @@ object AgentHub {
     fun send(question: String, task: String, image: Img?, shown: String) {
         if (chatId < 0) chatId = memory.newChat(question, settings.dot.id)
         val chat = chatId
-        val history = messages.filter { it.role == "user" || it.role == "assistant" }.map { it.role to it.text }
-        messages += UiMsg("user", shown); memory.addMessage(chat, "user", shown)
+        // photos are shown from the app's own storage; the model gets "[image]" instead of a file path
+        val history = messages.filter { it.role == "user" || it.role == "assistant" }.map { it.role to it.text.replace(Regex("""!\[[^\]]*]\(file://[^)]*\)"""), "[image]") }
+        val photo = image?.let { img ->
+            File(app.filesDir, "chat_images").apply { mkdirs() }.resolve("${System.currentTimeMillis()}.jpg").also { it.writeBytes(img.bytes) }
+        }
+        val display = photo?.let { "![photo](file://${it.absolutePath})\n" + shown.removePrefix("🖼 Image\n") } ?: shown
+        messages += UiMsg("user", display); memory.addMessage(chat, "user", display)
         val reply = UiMsg("assistant", "").apply { working = true }; messages += reply
         busy = true; pending++
         val dot = settings.dot; val mode = settings.mode; val rounds = settings.deepThink

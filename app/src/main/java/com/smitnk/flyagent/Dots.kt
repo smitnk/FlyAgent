@@ -75,6 +75,7 @@ object Prompts {
         appendLine("""{"final":"your answer, citing source URLs you actually found"}""")
         appendLine("For greetings or normal conversation, reply directly with {\"final\":\"...\"} — use tools only when needed. You may use Markdown in the final answer.")
         appendLine("If an image or file is attached, read it directly.")
+        appendLine("To show an image in the chat, put it on its own line as Markdown: ![short description](https://direct-image-url.jpg) — only use real image URLs you found; never invent URLs. Links are tappable: use [title](https://...).")
         if (dot.allows("brain_sim")) appendLine("When you report brain_sim results, say the connectivity is real FlyWire data but the activity is a model simulation.")
         append(Safety.PROMPT_RULES)
     }

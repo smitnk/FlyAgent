@@ -45,6 +45,15 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.withLink
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import coil.compose.AsyncImage
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -58,6 +67,7 @@ private sealed interface MarkdownBlock {
     data class NumberedItem(val number: String, val text: String) : MarkdownBlock
     data class BlockQuote(val text: String) : MarkdownBlock
     object HorizontalRule : MarkdownBlock
+    data class Image(val alt: String, val url: String) : MarkdownBlock
     data class Paragraph(val text: String) : MarkdownBlock
 }
 
@@ -81,6 +91,7 @@ fun MarkdownText(
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                     modifier = Modifier.padding(vertical = 4.dp),
                 )
+                is MarkdownBlock.Image -> ImageBlock(block)
                 is MarkdownBlock.Paragraph -> {
                     Text(
                         text = formatInlineMarkdown(block.text),
@@ -91,6 +102,19 @@ fun MarkdownText(
             }
         }
     }
+}
+
+@Composable
+private fun ImageBlock(img: MarkdownBlock.Image) {
+    val ctx = LocalContext.current
+    val uri = LocalUriHandler.current
+    if (!safeImage(img.url, ctx.filesDir.absolutePath)) { Text("[image: ${img.alt}]", color = MaterialTheme.colorScheme.onSurfaceVariant); return }
+    AsyncImage(
+        model = img.url, contentDescription = img.alt.ifBlank { "image" }, contentScale = ContentScale.FillWidth,
+        modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp).clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(enabled = img.url.startsWith("http")) { runCatching { uri.openUri(img.url) } },
+    )
 }
 
 @Composable
@@ -352,14 +376,25 @@ private fun formatInlineMarkdown(text: String): AnnotatedString {
 
                         if (closeBracket != -1 && openParen == closeBracket + 1 && closeParen != -1) {
                             val label = text.substring(i + 1, closeBracket)
-                            withStyle(SpanStyle(color = primaryColor, textDecoration = TextDecoration.Underline, fontWeight = FontWeight.Medium)) {
-                                append(label)
-                            }
+                            val url = text.substring(openParen + 1, closeParen).trim()
+                            val style = SpanStyle(color = primaryColor, textDecoration = TextDecoration.Underline, fontWeight = FontWeight.Medium)
+                            // tappable only for web/email links — never intent:, javascript: or file: URLs from model output
+                            if (safeLink(url)) withLink(LinkAnnotation.Url(url, TextLinkStyles(style))) { append(label) }
+                            else withStyle(style) { append(label) }
                             i = closeParen + 1
                         } else {
                             append(text[i])
                             i++
                         }
+                    }
+                    // bare web address: https://example.com/page
+                    text.startsWith("https://", i) || text.startsWith("http://", i) -> {
+                        var end = i
+                        while (end < text.length && !text[end].isWhitespace() && text[end] !in "<>\"") end++
+                        while (end > i && text[end - 1] in ".,;:!?)]'") end-- // trailing punctuation isn't part of the URL
+                        val url = text.substring(i, end)
+                        withLink(LinkAnnotation.Url(url, TextLinkStyles(SpanStyle(color = primaryColor, textDecoration = TextDecoration.Underline)))) { append(url) }
+                        i = end
                     }
                     else -> {
                         append(text[i])
@@ -370,6 +405,15 @@ private fun formatInlineMarkdown(text: String): AnnotatedString {
         }
     }
 }
+
+/** Links the user can tap: web pages and email only. */
+fun safeLink(url: String) = url.startsWith("https://") || url.startsWith("http://") || url.startsWith("mailto:")
+
+/** Images shown in chat: web images, or photos the user attached (stored in the app's own folder). */
+fun safeImage(url: String, appDir: String) = url.startsWith("https://") || url.startsWith("http://") ||
+    (url.startsWith("file://") && !url.contains("..") && url.removePrefix("file://").startsWith(appDir))
+
+private val IMAGE_LINE = Regex("""^!\[([^\]]*)]\(([^)\s]+)\)$""")
 
 private fun parseMarkdown(raw: String): List<MarkdownBlock> {
     val lines = raw.lines()
@@ -413,6 +457,13 @@ private fun parseMarkdown(raw: String): List<MarkdownBlock> {
 
         if (trimmed.isEmpty()) {
             flushParagraph()
+            continue
+        }
+
+        // Image on its own line: ![alt](url)
+        IMAGE_LINE.find(trimmed)?.let { m ->
+            flushParagraph()
+            blocks.add(MarkdownBlock.Image(m.groupValues[1], m.groupValues[2]))
             continue
         }
 

@@ -114,3 +114,21 @@ class DeepThinkAndBuildTest {
         assertEquals(1234L, installed!!.length())
     }
 }
+
+class LinksAndImagesTest {
+    @Test fun onlyWebAndEmailLinksAreTappable() {
+        assertTrue(com.smitnk.flyagent.ui.safeLink("https://example.com"))
+        assertTrue(com.smitnk.flyagent.ui.safeLink("mailto:a@b.c"))
+        assertFalse(com.smitnk.flyagent.ui.safeLink("intent://scan#Intent;end"))
+        assertFalse(com.smitnk.flyagent.ui.safeLink("javascript:alert(1)"))
+        assertFalse(com.smitnk.flyagent.ui.safeLink("file:///data/data/x"))
+    }
+
+    @Test fun imagesOnlyFromWebOrTheAppsOwnFolder() {
+        val dir = "/data/user/0/com.smitnk.flyagent/files"
+        assertTrue(com.smitnk.flyagent.ui.safeImage("https://upload.wikimedia.org/fly.jpg", dir))
+        assertTrue(com.smitnk.flyagent.ui.safeImage("file://$dir/chat_images/1.jpg", dir))
+        assertFalse(com.smitnk.flyagent.ui.safeImage("file:///sdcard/DCIM/private.jpg", dir))
+        assertFalse(com.smitnk.flyagent.ui.safeImage("file://$dir/../../other.jpg", dir))
+    }
+}

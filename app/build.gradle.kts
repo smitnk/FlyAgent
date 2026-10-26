@@ -36,6 +36,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.core:core-ktx:1.13.1")
+    // images in chat (Apache-2.0)
+    implementation("io.coil-kt:coil-compose:2.7.0")
     // scheduled tasks
     implementation("androidx.work:work-runtime-ktx:2.9.1")
     // on-device, offline image reading (bundled models, no download needed)

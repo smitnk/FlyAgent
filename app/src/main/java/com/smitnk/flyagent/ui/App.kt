@@ -187,7 +187,7 @@ private fun Welcome(act: MainActivity, modifier: Modifier) = Column(modifier.fil
 @Composable
 private fun UserMessage(m: UiMsg) = Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
     Surface(shape = RoundedCornerShape(18.dp, 18.dp, 4.dp, 18.dp), color = PocketOrange.copy(alpha = 0.16f), modifier = Modifier.padding(start = 48.dp)) {
-        Text(m.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), fontSize = 15.sp)
+        MarkdownText(m.text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
     }
 }
 
