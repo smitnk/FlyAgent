@@ -461,9 +461,10 @@ private fun parseMarkdown(raw: String): List<MarkdownBlock> {
         }
 
         // Image on its own line: ![alt](url)
-        IMAGE_LINE.find(trimmed)?.let { m ->
+        val imageMatch = IMAGE_LINE.find(trimmed)
+        if (imageMatch != null) {
             flushParagraph()
-            blocks.add(MarkdownBlock.Image(m.groupValues[1], m.groupValues[2]))
+            blocks.add(MarkdownBlock.Image(imageMatch.groupValues[1], imageMatch.groupValues[2]))
             continue
         }
 
