@@ -164,6 +164,7 @@ class Agent(
         "save_page" -> "Save page \"${args.optString("title").take(80)}\"?" to args.optString("content").take(1500)
         "draft_email" -> "Send email to ${args.optString("to").ifBlank { "(recipient not set)" }}?" to "Subject: ${args.optString("subject")}\n\n${args.optString("body").take(1500)}"
         "gh_issue" -> "Open issue in ${args.optString("repo")}?" to "${args.optString("title")}\n\n${args.optString("body").take(1200)}"
+        "ws_run" -> "Run a command in the Linux workspace${args.optString("project").let { if (it.isBlank()) "" else " ($it)" }}?" to args.optString("command").take(1500)
         "gh_build" -> "Start a cloud build of ${args.optString("repo")}?" to "GitHub Actions will build ${args.optString("workflow").ifBlank { "the project's workflow" }} on ${args.optString("ref").ifBlank { "the default branch" }}."
         "gh_install" -> "Install the APK built from ${args.optString("repo")}?" to "Downloads the build artifact from GitHub Actions${if (args.optLong("run_id") > 0) " (run ${args.optLong("run_id")})" else " (latest successful run)"} and opens Android's installer — you confirm the install there too."
         "gh_pr" -> "Open pull request in ${args.optString("repo")}?" to "${args.optString("title")}\n\nFiles: " +

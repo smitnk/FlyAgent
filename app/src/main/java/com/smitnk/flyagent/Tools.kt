@@ -12,6 +12,7 @@ import java.security.MessageDigest
 class Tools(val workspace: File, private val memory: Store, private val brain: () -> BrainEngine? = { null },
             private val mcp: (server: String, tool: String, args: JSONObject) -> String = { _, _, _ -> "ERROR: no connectors" },
             private val github: GitHub? = null,
+            private val ws: (JSONObject) -> String = { "ERROR: Linux workspace not available" },
             /** Opens the user's email app with the approved draft; the user presses Send there. */
             private val email: (to: String, subject: String, body: String) -> String = { _, _, _ -> "ERROR: email not available" }) {
     init { workspace.mkdirs() }
@@ -27,6 +28,7 @@ class Tools(val workspace: File, private val memory: Store, private val brain: (
             "recall" -> memory.recall(args.getString("query"), 5).joinToString("\n") { "#${it.id} ${it.task} -> ${it.outcome.take(200)}" }.ifEmpty { "(no matching memories)" }
             "brain_sim" -> BrainLab.run(brain(), args)
             "save_page" -> "Saved page #${memory.savePage(args.getString("title").take(200), args.getString("content"))} \"${args.getString("title")}\" to Spaces."
+            "ws_run" -> ws(args)
             "draft_email" -> email(args.optString("to"), args.optString("subject"), args.getString("body"))
             in GitHub.TOOLS -> github?.run(name, args) ?: "ERROR: GitHub not set up"
             "mcp" -> mcp(args.getString("server"), args.getString("name"), args.optJSONObject("arguments") ?: JSONObject())

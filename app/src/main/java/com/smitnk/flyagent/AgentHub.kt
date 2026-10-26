@@ -59,7 +59,8 @@ object AgentHub {
         app = ctx.applicationContext
         memory = MemoryDb(app); settings = Settings(app); connectors = ConnectorRegistry(settings::connectors)
         val github = GitHub({ settings.githubToken }, apkDir = File(app.cacheDir, "apks"), install = { apk -> main.post { installer?.invoke(apk) }; "Android's installer is opening — confirm to install." })
-        val tools = Tools(File(app.filesDir, "workspace"), memory, { ConnectomeBrain.get(app) }, connectors::call, github) { to, subject, body ->
+        Workspace.init(app)
+        val tools = Tools(File(app.filesDir, "workspace"), memory, { ConnectomeBrain.get(app) }, connectors::call, github, Workspace::toolRun) { to, subject, body ->
             val l = emailLauncher ?: return@Tools "ERROR: open FlyAgent to send email"
             main.post { l(to, subject, body) }; "Opened the draft in your email app — press Send there."
         }

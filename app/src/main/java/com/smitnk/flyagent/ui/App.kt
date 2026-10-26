@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.smitnk.flyagent.*
 import com.smitnk.flyagent.R
 
-private enum class Tab(val label: String, val icon: Int) { Chat("Chat", R.drawable.ic_chat), Tasks("Tasks", R.drawable.ic_alarm), Spaces("Spaces", R.drawable.ic_doc), Settings("Settings", 0) }
+private enum class Tab(val label: String, val icon: Int) { Chat("Chat", R.drawable.ic_chat), Tasks("Tasks", R.drawable.ic_alarm), Workspace("Code", R.drawable.ic_terminal), Spaces("Spaces", R.drawable.ic_doc), Settings("Settings", 0) }
 
 @Composable
 fun FlyApp(act: MainActivity) {
@@ -61,6 +61,7 @@ fun FlyApp(act: MainActivity) {
             when (tab) {
                 Tab.Chat -> ChatScreen(act)
                 Tab.Tasks -> TasksScreen(act)
+                Tab.Workspace -> WorkspaceScreen(act)
                 Tab.Spaces -> SpacesScreen(act)
                 Tab.Settings -> SettingsScreen(act)
             }

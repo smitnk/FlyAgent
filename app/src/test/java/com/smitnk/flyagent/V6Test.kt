@@ -132,3 +132,19 @@ class LinksAndImagesTest {
         assertFalse(com.smitnk.flyagent.ui.safeImage("file://$dir/../../other.jpg", dir))
     }
 }
+
+class WorkspaceTest {
+    @Test fun projectSlugsMatchTheRuntimesAllowedPattern() {
+        val pattern = Regex("^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
+        listOf("Poseme 3D!", "  Project Grease  ", "ऐप", "../../etc", "a".repeat(100)).forEach { assertTrue(it, pattern.matches(slugFor(it, emptySet()))) }
+        assertEquals("poseme-3d-2", slugFor("Poseme 3D", setOf("poseme-3d")))
+    }
+
+    @Test fun wsRunNeedsApprovalAndCoderMayUseIt() {
+        val asked = mutableListOf<String>()
+        val llm = FakeLlm(replies = mutableListOf("""{"tool":"ws_run","args":{"project":"app","command":"rm -rf build"}}""", """{"final":"ok"}"""))
+        Agent(FakeStore(), { _, _ -> "exit 0" }, { listOf(llm) }, null, { null }, { emptyList() }) { t, _ -> asked += t; false }
+            .run("clean build", null, Mode.CLOUD, ConventionalController, {}, emptyList(), Dot.PRESETS.first { it.id == "coder" })
+        assertEquals(listOf("Run a command in the Linux workspace (app)?"), asked)
+    }
+}
